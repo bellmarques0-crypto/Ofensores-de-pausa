@@ -1,0 +1,6 @@
+{
+  "name": "Análise de Produtividade - Operadores",
+  "description": "Sistema para análise de produtividade de operadores cruzando bases de Operadores, Pausas e Nuvidio com banco de dados persistente.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
