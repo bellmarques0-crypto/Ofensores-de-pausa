@@ -1,6 +1,6 @@
 {
-  "name": "Análise de Produtividade - Operadores",
-  "description": "Sistema para análise de produtividade de operadores cruzando bases de Operadores, Pausas e Nuvidio com banco de dados persistente.",
+  "name": "Ofensores de Pausa",
+  "description": "Sistema para análise de Ofensores de Pausa cruzando bases de Pausa Rosa e Nuvidio com importação de planilhas, consulta direta via SQL e integração de usuários via API.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

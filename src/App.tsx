@@ -5,6 +5,7 @@ import { DashboardView } from './components/DashboardView';
 import { OperatorReportView } from './components/OperatorReportView';
 import { ProductReportView } from './components/ProductReportView';
 import { ImportBasesView } from './components/ImportBasesView';
+import { ApiUserIntegration } from './components/ApiUserIntegration';
 import { UnmatchedView } from './components/UnmatchedView';
 import { HistoryView } from './components/HistoryView';
 import {
@@ -24,6 +25,7 @@ export default function App() {
     operador: '',
     produto: '',
     usuario: '',
+    supervisor: '',
   });
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -41,6 +43,7 @@ export default function App() {
         operador: filter.operador,
         produto: filter.produto,
         usuario: filter.usuario,
+        supervisor: filter.supervisor,
       }).toString();
 
       const [resSummary, resOp, resProd, resOptions] = await Promise.all([
@@ -72,6 +75,7 @@ export default function App() {
       operador: '',
       produto: '',
       usuario: '',
+      supervisor: '',
     });
   };
 
@@ -124,8 +128,15 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'api' && (
+          <ApiUserIntegration onSyncSuccess={fetchAllData} />
+        )}
+
         {activeTab === 'importar' && (
-          <ImportBasesView onImportSuccess={fetchAllData} />
+          <ImportBasesView
+            onImportSuccess={fetchAllData}
+            onNavigateToApi={() => setActiveTab('api')}
+          />
         )}
 
         {activeTab === 'inconsistencias' && (

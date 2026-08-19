@@ -147,7 +147,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-blue-600" />
               <h3 className="text-sm font-bold text-slate-900">
-                1. Tempo Nuvidio x Tempo Pausas (por Produto)
+                Tempo Nuvidio x Tempo Pausas (por Produto)
               </h3>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
@@ -220,7 +220,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <PieChart className="w-5 h-5 text-indigo-600" />
               <h3 className="text-sm font-bold text-slate-900">
-                2. Quantidade Nuvidio x Quantidade Pausas (por Produto)
+                Quantidade Nuvidio x Quantidade Pausas (por Produto)
               </h3>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
@@ -285,13 +285,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Diferença Percentual por Produto */}
+      {/* Diferença Percentual por Produto */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-600" />
             <h3 className="text-sm font-bold text-slate-900">
-              3. Diferença Percentual por Produto (`((Nuvidio - Pausas) / Pausas) * 100`)
+              Diferença Percentual por Produto
             </h3>
           </div>
         </div>

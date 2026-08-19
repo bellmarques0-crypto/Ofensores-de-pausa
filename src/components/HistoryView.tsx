@@ -1,95 +1,17 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { FilterOptions } from '../types';
-import { History, Database, Trash2, RotateCcw, FileSpreadsheet } from 'lucide-react';
+import { History, FileSpreadsheet } from 'lucide-react';
 
 interface HistoryViewProps {
   options: FilterOptions | null;
   onRefresh: () => void;
 }
 
-export const HistoryView: React.FC<HistoryViewProps> = ({ options, onRefresh }) => {
-  const [resetting, setResetting] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const handleReset = async (mode: 'seed' | 'empty') => {
-    const confirmText =
-      mode === 'empty'
-        ? 'Tem certeza de que deseja ZERAR todo o banco de dados?'
-        : 'Restaurar os dados de exemplo padrão?';
-
-    if (!window.confirm(confirmText)) return;
-
-    setResetting(true);
-    setMsg(null);
-
-    try {
-      const res = await fetch('/api/database/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMsg(data.message);
-        onRefresh();
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setResetting(false);
-    }
-  };
-
+export const HistoryView: React.FC<HistoryViewProps> = ({ options }) => {
   const importacoes = options?.importacoes || [];
 
   return (
     <div className="space-y-6">
-      {/* DB Info Card */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-blue-600" />
-            <h2 className="text-base font-bold text-slate-900">
-              Gerenciamento do Banco de Dados Persistente
-            </h2>
-          </div>
-          <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-full">
-            Salvo no Servidor (Disk DB)
-          </span>
-        </div>
-
-        <p className="text-xs text-slate-600 mb-4">
-          Todas as alterações e importações ficam armazenadas no banco de dados do servidor Node.js.
-          Se você acessar a aplicação de outro computador ou navegador, os dados já importados estarão preservados!
-        </p>
-
-        {msg && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-semibold">
-            {msg}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => handleReset('seed')}
-            disabled={resetting}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4 text-slate-300" />
-            Restaurar Dados de Exemplo
-          </button>
-
-          <button
-            onClick={() => handleReset('empty')}
-            disabled={resetting}
-            className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
-          >
-            <Trash2 className="w-4 h-4 text-rose-600" />
-            Zerar Banco de Dados
-          </button>
-        </div>
-      </div>
-
       {/* History Log Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">

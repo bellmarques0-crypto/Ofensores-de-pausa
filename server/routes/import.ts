@@ -25,10 +25,10 @@ import {
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
-// Column Mapping Configuration
+// Column Mapping Configuration with extensive aliases
 const REQUIRED_FIELDS = {
   operadores: [
     {
@@ -42,11 +42,18 @@ const REQUIRED_FIELDS = {
         'atendente',
         'nomedoatendente',
         'colaborador',
+        'nomecolaborador',
         'funcionario',
         'agente',
+        'nomeagente',
         'analista',
         'pessoa',
         'nomecompleto',
+        'name',
+        'fullname',
+        'nome_operador',
+        'nome_atendente',
+        'nome_colaborador',
       ],
     },
     {
@@ -64,11 +71,19 @@ const REQUIRED_FIELDS = {
         'correioeletronico',
         'mail',
         'emailnuvidio',
+        'emailcorporativo',
+        'emailcontato',
+        'emailusuario',
+        'email_atendente',
+        'email_operador',
+        'email_colaborador',
+        'e_mail',
       ],
+      optional: true,
     },
     {
       key: 'usuario',
-      label: 'INTERGRALL',
+      label: 'INTERGRALL / Usuário',
       aliases: [
         'intergrall',
         'integral',
@@ -88,6 +103,11 @@ const REQUIRED_FIELDS = {
         'idoperador',
         'id_operador',
         'userid',
+        'usuariomultimidia',
+        'loginintergrall',
+        'loginintegral',
+        'usuario_intergrall',
+        'usuariointergrall',
       ],
     },
     {
@@ -129,12 +149,48 @@ const REQUIRED_FIELDS = {
       ],
       optional: true,
     },
+    {
+      key: 'supervisor',
+      label: 'Supervisor',
+      aliases: [
+        'supervisor',
+        'supervisora',
+        'superv',
+        'sup',
+        'gestor',
+        'gestora',
+        'coordenador',
+        'coordenadora',
+        'coord',
+        'lider',
+        'lideranca',
+        'chefe',
+        'gerente',
+        'supervisor_nome',
+        'nome_supervisor',
+        'nomedosupervisor',
+        'supervisordoperador',
+      ],
+      optional: true,
+    },
   ],
   pausas: [
     {
       key: 'data',
       label: 'Data',
-      aliases: ['data', 'date', 'datapausa', 'datadapausa', 'dataemissao', 'dia'],
+      aliases: [
+        'data',
+        'date',
+        'datapausa',
+        'datadapausa',
+        'dataemissao',
+        'dia',
+        'datainicio',
+        'dtpausa',
+        'dt_pausa',
+        'data_pausa',
+        'data_inicio',
+      ],
     },
     {
       key: 'usuario',
@@ -153,27 +209,81 @@ const REQUIRED_FIELDS = {
         'codigo',
         'cod',
         'id',
+        'loginintergrall',
+        'loginpausa',
+        'operadorpausa',
+        'usuario_intergrall',
+        'usuariointergrall',
       ],
     },
     {
       key: 'pausa',
       label: 'Pausa',
-      aliases: ['pausa', 'tipopausa', 'motivo', 'motivopausa', 'nomepausa', 'descricao', 'status'],
+      aliases: [
+        'pausa',
+        'tipopausa',
+        'motivo',
+        'motivopausa',
+        'nomepausa',
+        'descricao',
+        'status',
+        'tipo',
+        'despausa',
+        'descpausa',
+        'tipo_pausa',
+        'motivo_pausa',
+      ],
     },
     {
       key: 'inicio',
       label: 'Início',
-      aliases: ['inicio', 'horainicio', 'start', 'horadeinicio', 'entrada', 'horarioinicio'],
+      aliases: [
+        'inicio',
+        'horainicio',
+        'start',
+        'horadeinicio',
+        'entrada',
+        'horarioinicio',
+        'iniciopausa',
+        'horainiciopausa',
+        'h_inicio',
+        'hora_inicio',
+        'inicio_pausa',
+        'abertura',
+      ],
     },
     {
       key: 'fim',
       label: 'Fim',
-      aliases: ['fim', 'horafim', 'end', 'horadefim', 'termino', 'horariofim', 'saida'],
+      aliases: [
+        'fim',
+        'horafim',
+        'end',
+        'horadefim',
+        'termino',
+        'horariofim',
+        'saida',
+        'fimpausa',
+        'horafimpausa',
+        'h_fim',
+        'hora_fim',
+        'fim_pausa',
+        'fechamento',
+      ],
     },
     {
       key: 'tempo',
       label: 'Tempo',
-      aliases: ['tempo', 'duracao', 'duracaopausa', 'tempopausa', 'tempototal', 'duracaototal'],
+      aliases: [
+        'tempo',
+        'duracao',
+        'duracaopausa',
+        'tempopausa',
+        'tempototal',
+        'duracaototal',
+        'tempo_pausa',
+        'duracao_pausa',
+      ],
       optional: true,
     },
     {
@@ -222,6 +332,27 @@ const REQUIRED_FIELDS = {
         'e-mail',
         'atendente',
         'emailatend',
+        'emailnuvidio',
+        'atendente_email',
+        'email_atendente',
+        'e_mail_atendente',
+        'nome',
+        'nomedoatendente',
+        'nomeatendente',
+        'nomedooperador',
+        'nomeoperador',
+        'operador',
+        'colaborador',
+        'nomedocolaborador',
+        'usuario',
+        'user',
+        'agente',
+        'nomedoagente',
+        'emaildoagente',
+        'login',
+        'atendentenome',
+        'nome_atendente',
+        'nome_operador',
       ],
     },
     {
@@ -237,6 +368,12 @@ const REQUIRED_FIELDS = {
         'inicio',
         'atendenteentrou',
         'entrou',
+        'datahoraentrada',
+        'data_hora_entrada',
+        'dt_entrada',
+        'entrada_chamada',
+        'atendente_entrou',
+        'inicio_chamada',
       ],
     },
     {
@@ -255,120 +392,184 @@ const REQUIRED_FIELDS = {
         'fim',
         'atendentesaiu',
         'saiu',
+        'datahorasaida',
+        'data_hora_saida',
+        'dt_saida',
+        'saida_chamada',
+        'atendente_saiu',
+        'fim_chamada',
       ],
     },
   ],
 };
 
 /**
- * Helper to parse Excel or CSV buffer into row objects using XLSX (SheetJS)
+ * Split single-row strings if delimited by semicolon, tab, or pipe
  */
-async function parseFileRows(fileBuffer: Buffer, fileName: string): Promise<{ headers: string[]; rows: any[] }> {
-  try {
-    const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true, raw: false });
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) return { headers: [], rows: [] };
+function normalizeRowData(row: any[]): string[] {
+  if (!row || row.length === 0) return [];
 
-    const worksheet = workbook.Sheets[sheetName];
-    // Convert sheet to array of row arrays
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
-
-    if (!jsonData || jsonData.length === 0) return { headers: [], rows: [] };
-
-    // Find first non-empty row as header row
-    let headerRowIndex = 0;
-    while (
-      headerRowIndex < jsonData.length &&
-      (!jsonData[headerRowIndex] || jsonData[headerRowIndex].every((cell) => String(cell || '').trim() === ''))
-    ) {
-      headerRowIndex++;
+  if (row.length === 1 && typeof row[0] === 'string') {
+    const val = row[0];
+    if (val.includes(';')) {
+      return val.split(';').map((s) => s.trim().replace(/^["']|["']$/g, ''));
     }
-
-    if (headerRowIndex >= jsonData.length) return { headers: [], rows: [] };
-
-    const rawHeaderRow = jsonData[headerRowIndex];
-    const headers: string[] = rawHeaderRow.map((h: any) => String(h || '').trim());
-
-    // Trim trailing empty headers
-    while (headers.length > 0 && headers[headers.length - 1] === '') {
-      headers.pop();
+    if (val.includes('\t')) {
+      return val.split('\t').map((s) => s.trim().replace(/^["']|["']$/g, ''));
     }
-
-    const rows: any[] = [];
-    for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
-      const rowArr = jsonData[i];
-      if (!rowArr || rowArr.length === 0) continue;
-
-      const rowObj: Record<string, string> = {};
-      let hasData = false;
-
-      for (let c = 0; c < headers.length; c++) {
-        const header = headers[c];
-        if (!header) continue;
-
-        const rawCell = rowArr[c];
-        let strVal = '';
-        if (rawCell !== undefined && rawCell !== null) {
-          if (rawCell instanceof Date) {
-            strVal = rawCell.toISOString();
-          } else if (typeof rawCell === 'object') {
-            if (rawCell.w !== undefined) strVal = String(rawCell.w);
-            else if (rawCell.v !== undefined) strVal = String(rawCell.v);
-            else strVal = String(rawCell);
-          } else {
-            strVal = String(rawCell);
-          }
-        }
-
-        strVal = strVal.trim();
-        if (strVal !== '') {
-          hasData = true;
-        }
-        rowObj[header] = strVal;
-      }
-
-      if (hasData) {
-        rows.push(rowObj);
-      }
-    }
-
-    return { headers, rows };
-  } catch (err) {
-    console.warn('XLSX parser warning, attempting PapaParse fallback for CSV/Text:', err);
-    try {
-      const content = fileBuffer.toString('utf-8');
-      const parsed = Papa.parse(content, { header: true, skipEmptyLines: true });
-      const headers = (parsed.meta.fields || []).map((h) => String(h || '').trim());
-      const cleanRows = (parsed.data as any[]).map((row) => {
-        const obj: Record<string, string> = {};
-        for (const [k, v] of Object.entries(row)) {
-          if (k) obj[k] = String(v || '').trim();
-        }
-        return obj;
-      });
-      return { headers, rows: cleanRows };
-    } catch (csvErr) {
-      console.error('File parsing failed completely:', csvErr);
-      throw new Error('Formato de arquivo inválido. Por favor envie um arquivo .xlsx, .xls ou .csv válido.');
+    if (val.includes('|')) {
+      return val.split('|').map((s) => s.trim().replace(/^["']|["']$/g, ''));
     }
   }
+
+  return row.map((cell: any) => {
+    if (cell === null || cell === undefined) return '';
+    if (cell instanceof Date) return cell.toISOString();
+    if (typeof cell === 'object') {
+      if (cell.w !== undefined) return String(cell.w).trim();
+      if (cell.v !== undefined) return String(cell.v).trim();
+      return String(cell).trim();
+    }
+    return String(cell).trim();
+  });
 }
 
 /**
- * Maps input file headers to target field definitions
+ * Helper to parse Excel or CSV buffer into row objects using XLSX (SheetJS) and PapaParse
  */
-function findColumnMappings(headers: string[], baseType: 'operadores' | 'pausas' | 'nuvidio') {
+async function parseFileRows(
+  fileBuffer: Buffer,
+  fileName: string,
+  baseType?: 'operadores' | 'pausas' | 'nuvidio'
+): Promise<{ headers: string[]; rows: any[] }> {
+  let rawMatrix: string[][] = [];
+
+  // Try parsing with XLSX
+  try {
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true, raw: false });
+    const sheetName = workbook.SheetNames[0];
+    if (sheetName) {
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+      rawMatrix = jsonData.map(normalizeRowData);
+    }
+  } catch (xlsxErr) {
+    console.warn('XLSX parse error, falling back to PapaParse:', xlsxErr);
+  }
+
+  // Fallback to PapaParse if XLSX produced nothing
+  if (rawMatrix.length === 0) {
+    try {
+      const textContent = fileBuffer.toString('utf-8');
+      const parsed = Papa.parse(textContent, { header: false, skipEmptyLines: true });
+      rawMatrix = (parsed.data as any[][]).map(normalizeRowData);
+    } catch (csvErr) {
+      console.error('PapaParse failed as well:', csvErr);
+    }
+  }
+
+  if (rawMatrix.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  // Determine the best header row by scoring candidate rows (0 to 15)
+  const knownAliases = baseType
+    ? REQUIRED_FIELDS[baseType].flatMap((f) => f.aliases)
+    : Object.values(REQUIRED_FIELDS)
+        .flatMap((fields) => fields.flatMap((f) => f.aliases));
+
+  let bestHeaderIndex = 0;
+  let maxScore = -1;
+
+  for (let i = 0; i < Math.min(15, rawMatrix.length); i++) {
+    const row = rawMatrix[i];
+    if (!row || row.length === 0) continue;
+
+    let score = 0;
+    const nonEmpties = row.filter((c) => c !== '').length;
+
+    row.forEach((cell) => {
+      const norm = normalizeColumnHeader(cell);
+      if (norm && knownAliases.includes(norm)) {
+        score += 3;
+      } else if (norm && norm.length > 2) {
+        score += 0.5;
+      }
+    });
+
+    if (score > maxScore && nonEmpties >= 2) {
+      maxScore = score;
+      bestHeaderIndex = i;
+    }
+  }
+
+  const rawHeaders = rawMatrix[bestHeaderIndex] || [];
+  const headers: string[] = rawHeaders.map((h, idx) => h || `Coluna_${idx + 1}`);
+
+  // Trim trailing empty headers
+  while (headers.length > 0 && headers[headers.length - 1] === '') {
+    headers.pop();
+  }
+
+  const rows: any[] = [];
+  for (let i = bestHeaderIndex + 1; i < rawMatrix.length; i++) {
+    const rowArr = rawMatrix[i];
+    if (!rowArr || rowArr.length === 0) continue;
+
+    const rowObj: Record<string, string> = {};
+    let hasData = false;
+
+    for (let c = 0; c < headers.length; c++) {
+      const headerName = headers[c];
+      if (!headerName) continue;
+
+      const val = rowArr[c] !== undefined ? String(rowArr[c]).trim() : '';
+      if (val !== '') {
+        hasData = true;
+      }
+      rowObj[headerName] = val;
+    }
+
+    if (hasData) {
+      rows.push(rowObj);
+    }
+  }
+
+  return { headers, rows };
+}
+
+/**
+ * Maps input file headers to target field definitions with optional manual override
+ */
+function findColumnMappings(
+  headers: string[],
+  baseType: 'operadores' | 'pausas' | 'nuvidio',
+  manualMappings?: Record<string, string>
+) {
   const fields = REQUIRED_FIELDS[baseType];
+  const mappings: Record<string, string> = {}; // key -> original header
+  const missingLabels: string[] = [];
+  const usedHeaders = new Set<string>();
+
+  // If manual mappings provided, validate them against headers
+  if (manualMappings && typeof manualMappings === 'object') {
+    for (const field of fields) {
+      const chosenHeader = manualMappings[field.key];
+      if (chosenHeader && headers.includes(chosenHeader)) {
+        mappings[field.key] = chosenHeader;
+        usedHeaders.add(chosenHeader);
+      }
+    }
+  }
+
   const normalizedHeaders = headers.map((h) => ({
     original: h,
     normalized: normalizeColumnHeader(h),
   }));
 
-  const mappings: Record<string, string> = {}; // key -> original header
-  const missingLabels: string[] = [];
-  const usedHeaders = new Set<string>();
-
   for (const field of fields) {
+    if (mappings[field.key]) continue; // Already mapped manually
+
     let matchedHeader = '';
 
     // 1. Exact alias match
@@ -388,11 +589,17 @@ function findColumnMappings(headers: string[], baseType: 'operadores' | 'pausas'
           (field.key === 'saida' && (hObj.normalized.includes('saiu') || hObj.normalized.includes('saida') || hObj.normalized.includes('horafim'))) ||
           (field.key === 'entrada' && (hObj.normalized.includes('entrou') || hObj.normalized.includes('entrada') || hObj.normalized.includes('horainicio'))) ||
           (field.key === 'email_atendente' && (hObj.normalized.includes('email') || hObj.normalized.includes('atendente'))) ||
-          (field.key === 'nome' && (hObj.normalized.includes('nome') || hObj.normalized.includes('operador') || hObj.normalized.includes('atendente'))) ||
+          (field.key === 'nome' && (hObj.normalized.includes('nome') || hObj.normalized.includes('operador') || hObj.normalized.includes('atendente') || hObj.normalized.includes('colaborador'))) ||
           (field.key === 'email' && hObj.normalized.includes('email')) ||
-          (field.key === 'usuario' && (hObj.normalized.includes('intergrall') || hObj.normalized.includes('integral') || hObj.normalized.includes('usuario') || hObj.normalized.includes('user') || hObj.normalized.includes('login'))) ||
+          (field.key === 'usuario' && (hObj.normalized.includes('intergrall') || hObj.normalized.includes('integral') || hObj.normalized.includes('usuario') || hObj.normalized.includes('user') || hObj.normalized.includes('login') || hObj.normalized.includes('matricula') || hObj.normalized.includes('re'))) ||
           (field.key === 'pausa' && (hObj.normalized.includes('pausa') || hObj.normalized.includes('motivo'))) ||
           (field.key === 'tempo' && (hObj.normalized.includes('tempo') || hObj.normalized.includes('duracao'))) ||
+          (field.key === 'supervisor' &&
+            (hObj.normalized.includes('supervisor') ||
+              hObj.normalized.includes('superv') ||
+              hObj.normalized.includes('coord') ||
+              hObj.normalized.includes('gestor') ||
+              hObj.normalized.includes('lider'))) ||
           (field.key === 'produto' &&
             (hObj.normalized.includes('produto') ||
               hObj.normalized.includes('atendimento') ||
@@ -426,19 +633,9 @@ function findColumnMappings(headers: string[], baseType: 'operadores' | 'pausas'
     }
   }
 
-  // 3. Unmapped fallback for operadores base: if produto is still unmapped, pick a remaining unused column that is NOT cargo/função/gestor/etc.
-  if (baseType === 'operadores' && !mappings.produto) {
-    const nonProductKeywords = ['cargo', 'funcao', 'gestor', 'supervisor', 'nivel', 'role', 'status', 'situacao', 'admissao', 'demissao', 'salario', 'cpf', 'rg', 'turno', 'escala', 'horario', 'data', 'nome', 'email', 'user', 'login', 'matricula', 'id', 're'];
-    const candidateHeader = normalizedHeaders.find(
-      (hObj) =>
-        !usedHeaders.has(hObj.original) &&
-        hObj.normalized &&
-        !nonProductKeywords.some((kw) => hObj.normalized.includes(kw))
-    );
-    if (candidateHeader) {
-      mappings.produto = candidateHeader.original;
-      usedHeaders.add(candidateHeader.original);
-    }
+  // Special fallback for Operadores: if email is missing, reuse usuario column or generate
+  if (baseType === 'operadores' && !mappings.email && mappings.usuario) {
+    mappings.email = mappings.usuario; // Fallback so email won't block
   }
 
   return {
@@ -450,12 +647,102 @@ function findColumnMappings(headers: string[], baseType: 'operadores' | 'pausas'
 }
 
 /**
+ * Download Template Endpoint
+ */
+router.get('/template/:tipo_base', (req: Request, res: Response) => {
+  const baseType = req.params.tipo_base as 'operadores' | 'pausas' | 'nuvidio';
+  if (!baseType || !REQUIRED_FIELDS[baseType]) {
+    return res.status(400).json({ error: 'Tipo de base inválido' });
+  }
+
+  let sampleData: any[] = [];
+  let filename = '';
+
+  if (baseType === 'operadores') {
+    filename = 'modelo_base_operadores.xlsx';
+    sampleData = [
+      {
+        Nome: 'Tainá Martins',
+        'E-mail': 'taina.martins@proativacontactcenter.com.br',
+        INTERGRALL: 'taina.martins',
+        Produto: 'PINE',
+        Supervisor: 'Carlos Souza',
+      },
+      {
+        Nome: 'Maria Silva',
+        'E-mail': 'maria.silva@proativacontactcenter.com.br',
+        INTERGRALL: 'maria.silva',
+        Produto: 'CEDRO',
+        Supervisor: 'Ana Paula',
+      },
+    ];
+  } else if (baseType === 'pausas') {
+    filename = 'modelo_base_pausas.xlsx';
+    sampleData = [
+      {
+        Data: '11/08/2026',
+        INTERGRALL: 'taina.martins',
+        Pausa: 'Lanche',
+        Início: '10:00:00',
+        Fim: '10:15:00',
+        Tempo: '00:15:00',
+        Produto: 'PINE',
+      },
+      {
+        Data: '11/08/2026',
+        INTERGRALL: 'maria.silva',
+        Pausa: 'Almoço',
+        Início: '12:00:00',
+        Fim: '13:00:00',
+        Tempo: '01:00:00',
+        Produto: 'CEDRO',
+      },
+    ];
+  } else if (baseType === 'nuvidio') {
+    filename = 'modelo_base_nuvidio.xlsx';
+    sampleData = [
+      {
+        'Email do atendente': 'taina.martins@proativacontactcenter.com.br',
+        'Atendente entrou na chamada (Formatado)': '11/08/2026 19:56',
+        'Atendente saiu da chamada (Formatado)': '11/08/2026 19:58',
+      },
+      {
+        'Email do atendente': 'maria.silva@proativacontactcenter.com.br',
+        'Atendente entrou na chamada (Formatado)': '11/08/2026 08:30',
+        'Atendente saiu da chamada (Formatado)': '11/08/2026 11:05',
+      },
+    ];
+  }
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(sampleData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Modelo');
+
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.send(buf);
+});
+
+/**
  * Preview endpoint: validates file structure and displays detected columns
  */
 router.post('/preview', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const file = req.file;
     const baseType = req.body.tipo_base as 'operadores' | 'pausas' | 'nuvidio';
+    let manualMappings: Record<string, string> | undefined;
+
+    if (req.body.column_mappings) {
+      try {
+        manualMappings = typeof req.body.column_mappings === 'string'
+          ? JSON.parse(req.body.column_mappings)
+          : req.body.column_mappings;
+      } catch {
+        // ignore parse error
+      }
+    }
 
     if (!file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
@@ -465,8 +752,13 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
       return res.status(400).json({ error: 'Tipo de base inválido.' });
     }
 
-    const { headers, rows } = await parseFileRows(file.buffer, file.originalname);
-    const validation = findColumnMappings(headers, baseType);
+    const { headers, rows } = await parseFileRows(file.buffer, file.originalname, baseType);
+
+    if (headers.length === 0) {
+      return res.status(400).json({ error: 'O arquivo enviado está vazio ou não possui colunas legíveis.' });
+    }
+
+    const validation = findColumnMappings(headers, baseType, manualMappings);
 
     const sampleRows = rows.slice(0, 5).map((row) => {
       const mappedSample: any = {};
@@ -485,6 +777,11 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
       missingColumns: validation.missingLabels,
       mappedColumns: validation.mappings,
       sampleRows,
+      requiredFields: REQUIRED_FIELDS[baseType].map((f) => ({
+        key: f.key,
+        label: f.label,
+        optional: !!(f as any).optional,
+      })),
     });
   } catch (error: any) {
     console.error('Preview error:', error);
@@ -502,6 +799,17 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
     const mode = ((req.body.modo || req.body.mode || 'substituir') as 'substituir' | 'adicionar');
     const modo = mode;
 
+    let manualMappings: Record<string, string> | undefined;
+    if (req.body.column_mappings) {
+      try {
+        manualMappings = typeof req.body.column_mappings === 'string'
+          ? JSON.parse(req.body.column_mappings)
+          : req.body.column_mappings;
+      } catch {
+        // ignore parse error
+      }
+    }
+
     if (!file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }
@@ -510,8 +818,8 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
       return res.status(400).json({ error: 'Tipo de base inválido.' });
     }
 
-    const { headers, rows } = await parseFileRows(file.buffer, file.originalname);
-    const validation = findColumnMappings(headers, baseType);
+    const { headers, rows } = await parseFileRows(file.buffer, file.originalname, baseType);
+    const validation = findColumnMappings(headers, baseType, manualMappings);
 
     if (!validation.valid) {
       return res.status(400).json({
@@ -535,9 +843,19 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
 
       rows.forEach((row, idx) => {
         const nome = String(row[mappings.nome] || '').trim();
-        const email = normalizeEmail(row[mappings.email]);
+        let email = normalizeEmail(row[mappings.email]);
         const usuario = normalizeUsername(row[mappings.usuario]);
         const produto = mappings.produto ? String(row[mappings.produto] || '').trim() : '';
+        const supervisor = mappings.supervisor ? String(row[mappings.supervisor] || '').trim() : '';
+
+        // If email was not provided, derive or use fallback
+        if (!email && usuario) {
+          if (usuario.includes('@')) {
+            email = usuario;
+          } else {
+            email = `${usuario}@proativacontactcenter.com.br`;
+          }
+        }
 
         if (!email && !usuario && !nome) return;
 
@@ -545,8 +863,13 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
 
         if (existingFingerprints.has(fingerprint)) {
           const existingOp = newOperadores.find((o) => o.fingerprint === fingerprint);
-          if (existingOp && produto && (!existingOp.produto || existingOp.produto === 'Sem Produto')) {
-            existingOp.produto = produto;
+          if (existingOp) {
+            if (produto && (!existingOp.produto || existingOp.produto === 'Sem Produto')) {
+              existingOp.produto = produto;
+            }
+            if (supervisor && (!existingOp.supervisor || existingOp.supervisor === 'Não Informado')) {
+              existingOp.supervisor = supervisor;
+            }
           }
           skippedCount += 1;
           return;
@@ -558,9 +881,10 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
         newOperadores.push({
           id: `op-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
           nome: nome || usuario || email,
-          email,
-          usuario,
+          email: email || `${usuario}@local`,
+          usuario: usuario || email.split('@')[0],
           produto: produto || undefined,
+          supervisor: supervisor || 'Não Informado',
           created_at: now,
           updated_at: now,
           fingerprint,
@@ -576,11 +900,20 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
 
       rows.forEach((row, idx) => {
         const dataRaw = String(row[mappings.data] || '').trim();
-        const data_iso = parseDateToISO(dataRaw);
-        const usuario = normalizeUsername(row[mappings.usuario]);
-        const pausa = String(row[mappings.pausa] || '').trim();
         const inicio = String(row[mappings.inicio] || '').trim();
         const fim = String(row[mappings.fim] || '').trim();
+
+        let data_iso = parseDateToISO(dataRaw);
+        if (!data_iso && inicio) {
+          data_iso = parseDateToISO(inicio);
+        }
+        if (!data_iso && fim) {
+          data_iso = parseDateToISO(fim);
+        }
+
+        const finalData = dataRaw || (data_iso ? `${data_iso.split('-')[2]}/${data_iso.split('-')[1]}/${data_iso.split('-')[0]}` : '');
+        const usuario = normalizeUsername(row[mappings.usuario]);
+        const pausa = String(row[mappings.pausa] || '').trim();
         const tempoRaw = row[mappings.tempo];
         const tempo_segundos = calculatePauseDurationSeconds(inicio, fim, tempoRaw);
         const produto = String(row[mappings.produto] || '').trim() || 'Sem Produto';
@@ -600,7 +933,7 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
 
         newPausas.push({
           id: `p-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-          data: dataRaw,
+          data: finalData,
           data_iso,
           usuario,
           pausa,
@@ -687,3 +1020,4 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
 });
 
 export default router;
+

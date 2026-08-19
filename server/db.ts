@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { calculatePauseDurationSeconds, formatSecondsToHHMMSS } from './utils';
+import { calculatePauseDurationSeconds, formatSecondsToHHMMSS, parseDateToISO } from './utils';
 
 export interface Operador {
   id: string;
@@ -8,6 +8,7 @@ export interface Operador {
   email: string; // normalized lowercase trimmed
   usuario: string; // normalized lowercase trimmed
   produto?: string; // optional product from base de operadores
+  supervisor?: string; // optional supervisor from base de operadores
   created_at: string;
   updated_at: string;
   fingerprint: string;
@@ -49,11 +50,80 @@ export interface Importacao {
   modo: 'substituir' | 'adicionar';
 }
 
+export interface ApiIntegracaoUsuarios {
+  enabled: boolean;
+  url: string;
+  metodo: 'GET' | 'POST';
+  auth_tipo: 'none' | 'bearer' | 'api_key' | 'basic';
+  auth_token?: string;
+  api_key_header?: string;
+  api_key_valor?: string;
+  basic_user?: string;
+  basic_pass?: string;
+  custom_headers?: Record<string, string>;
+  request_body?: string;
+  json_path?: string;
+  mapeamento: {
+    nome: string;
+    usuario: string;
+    email?: string;
+    produto?: string;
+    supervisor?: string;
+  };
+  modo_padrao: 'substituir' | 'adicionar';
+  ultima_sincronizacao?: string;
+  ultimo_status?: 'sucesso' | 'erro' | 'nunca';
+  ultimo_total_importados?: number;
+  ultimo_erro_msg?: string;
+}
+
+export interface SqlIntegracaoPausas {
+  enabled: boolean;
+  modo_execucao: 'sqlserver' | 'rest_api' | 'postgres' | 'mysql' | 'direct_paste';
+  // For REST API / Web SQL Gateway
+  url?: string;
+  metodo?: 'GET' | 'POST';
+  auth_tipo?: 'none' | 'bearer' | 'api_key' | 'basic';
+  auth_token?: string;
+  api_key_header?: string;
+  api_key_valor?: string;
+  basic_user?: string;
+  basic_pass?: string;
+  custom_headers?: Record<string, string>;
+  json_path?: string;
+  // For Direct Database connection
+  db_host?: string;
+  db_port?: number;
+  db_name?: string;
+  db_user?: string;
+  db_password?: string;
+  db_ssl?: boolean;
+  // SQL Query Text
+  sql_query: string;
+  // Mappings
+  mapeamento: {
+    data: string;
+    intergrall: string;
+    pausa: string;
+    inicio: string;
+    fim: string;
+    tempo?: string;
+    produto?: string;
+  };
+  modo_padrao: 'substituir' | 'adicionar';
+  ultima_sincronizacao?: string;
+  ultimo_status?: 'sucesso' | 'erro' | 'nunca';
+  ultimo_total_importados?: number;
+  ultimo_erro_msg?: string;
+}
+
 export interface DatabaseSchema {
   operadores: Operador[];
   pausas: Pausa[];
   nuvidio: Nuvidio[];
   importacoes: Importacao[];
+  api_integracao_usuarios?: ApiIntegracaoUsuarios;
+  sql_integracao_pausas?: SqlIntegracaoPausas;
 }
 
 const DB_DIR = path.join(process.cwd(), 'data');
@@ -87,6 +157,8 @@ export function loadDatabase(): DatabaseSchema {
         pausas: Array.isArray(parsed.pausas) ? parsed.pausas : [],
         nuvidio: Array.isArray(parsed.nuvidio) ? parsed.nuvidio : [],
         importacoes: Array.isArray(parsed.importacoes) ? parsed.importacoes : [],
+        api_integracao_usuarios: parsed.api_integracao_usuarios || undefined,
+        sql_integracao_pausas: parsed.sql_integracao_pausas || undefined,
       };
       sanitizeDatabasePausas();
     } else {
@@ -115,7 +187,21 @@ function sanitizeDatabasePausas() {
       p.tempo = formatSecondsToHHMMSS(sanitizedSec);
       modified = true;
     }
+    const computedIso = parseDateToISO(p.data) || parseDateToISO(p.inicio) || parseDateToISO(p.data_iso);
+    if (computedIso && p.data_iso !== computedIso) {
+      p.data_iso = computedIso;
+      modified = true;
+    }
   });
+
+  dbState.nuvidio.forEach((n) => {
+    const computedIso = parseDateToISO(n.entrada) || parseDateToISO(n.data_iso);
+    if (computedIso && n.data_iso !== computedIso) {
+      n.data_iso = computedIso;
+      modified = true;
+    }
+  });
+
   if (modified) {
     saveDatabase();
   }
@@ -146,235 +232,7 @@ export function getDb(): DatabaseSchema {
  * Seeds sample initial data so system has instant previewable data
  */
 export function seedSampleDataIfEmpty() {
-  if (dbState.operadores.length > 0 || dbState.pausas.length > 0 || dbState.nuvidio.length > 0) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-
-  // Sample Operadores
-  const sampleOperadores: Operador[] = [
-    {
-      id: 'op-1',
-      nome: 'Tainá Martins',
-      email: 'taina.martins@proativacontactcenter.com.br',
-      usuario: 'taina.martins',
-      created_at: now,
-      updated_at: now,
-      fingerprint: 'taina.martins@proativacontactcenter.com.br||taina.martins',
-    },
-    {
-      id: 'op-2',
-      nome: 'Maria Silva',
-      email: 'maria.silva@proativacontactcenter.com.br',
-      usuario: 'maria.silva',
-      created_at: now,
-      updated_at: now,
-      fingerprint: 'maria.silva@proativacontactcenter.com.br||maria.silva',
-    },
-    {
-      id: 'op-3',
-      nome: 'João Santos',
-      email: 'joao.santos@proativacontactcenter.com.br',
-      usuario: 'joao.santos',
-      created_at: now,
-      updated_at: now,
-      fingerprint: 'joao.santos@proativacontactcenter.com.br||joao.santos',
-    },
-    {
-      id: 'op-4',
-      nome: 'Ana Oliveira',
-      email: 'ana.oliveira@proativacontactcenter.com.br',
-      usuario: 'ana.oliveira',
-      created_at: now,
-      updated_at: now,
-      fingerprint: 'ana.oliveira@proativacontactcenter.com.br||ana.oliveira',
-    },
-  ];
-
-  // Sample Pausas
-  const samplePausas: Pausa[] = [
-    {
-      id: 'p-1',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'taina.martins',
-      pausa: 'Lanche',
-      inicio: '10:00:00',
-      fim: '10:15:00',
-      tempo: '00:15:00',
-      tempo_segundos: 900,
-      produto: 'PINE',
-      created_at: now,
-      fingerprint: '2026-08-11||taina.martins||10:00:00||10:15:00||lanche',
-    },
-    {
-      id: 'p-2',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'taina.martins',
-      pausa: 'Almoço',
-      inicio: '12:30:00',
-      fim: '13:30:00',
-      tempo: '01:00:00',
-      tempo_segundos: 3600,
-      produto: 'PINE',
-      created_at: now,
-      fingerprint: '2026-08-11||taina.martins||12:30:00||13:30:00||almoço',
-    },
-    {
-      id: 'p-3',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'maria.silva',
-      pausa: 'Lanche',
-      inicio: '09:30:00',
-      fim: '09:45:00',
-      tempo: '00:15:00',
-      tempo_segundos: 900,
-      produto: 'PINE',
-      created_at: now,
-      fingerprint: '2026-08-11||maria.silva||09:30:00||09:45:00||lanche',
-    },
-    {
-      id: 'p-4',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'maria.silva',
-      pausa: 'Treinamento',
-      inicio: '14:00:00',
-      fim: '15:00:00',
-      tempo: '01:00:00',
-      tempo_segundos: 3600,
-      produto: 'PINE',
-      created_at: now,
-      fingerprint: '2026-08-11||maria.silva||14:00:00||15:00:00||treinamento',
-    },
-    {
-      id: 'p-5',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'joao.santos',
-      pausa: 'Lanche',
-      inicio: '15:00:00',
-      fim: '15:20:00',
-      tempo: '00:20:00',
-      tempo_segundos: 1200,
-      produto: 'CEDRO',
-      created_at: now,
-      fingerprint: '2026-08-11||joao.santos||15:00:00||15:20:00||lanche',
-    },
-    // Pausa sem operador para teste de inconsistências
-    {
-      id: 'p-6',
-      data: '11/08/2026',
-      data_iso: '2026-08-11',
-      usuario: 'usuario.desconhecido',
-      pausa: 'Feedback',
-      inicio: '11:00:00',
-      fim: '11:30:00',
-      tempo: '00:30:00',
-      tempo_segundos: 1800,
-      produto: 'CEDRO',
-      created_at: now,
-      fingerprint: '2026-08-11||usuario.desconhecido||11:00:00||11:30:00||feedback',
-    },
-  ];
-
-  // Sample Nuvidio
-  const sampleNuvidio: Nuvidio[] = [
-    // Tainá Martins: 19:56 to 19:58 (00:02:00) + another 02:45:00 call
-    {
-      id: 'n-1',
-      email_atendente: 'taina.martins@proativacontactcenter.com.br',
-      entrada: '11/08/2026 19:56',
-      saida: '11/08/2026 19:58',
-      data_iso: '2026-08-11',
-      tempo_segundos: 120, // 2 mins
-      created_at: now,
-      fingerprint: 'taina.martins@proativacontactcenter.com.br||11/08/2026 19:56||11/08/2026 19:58',
-    },
-    {
-      id: 'n-2',
-      email_atendente: 'taina.martins@proativacontactcenter.com.br',
-      entrada: '11/08/2026 08:00',
-      saida: '11/08/2026 11:30',
-      data_iso: '2026-08-11',
-      tempo_segundos: 12600, // 3h 30m
-      created_at: now,
-      fingerprint: 'taina.martins@proativacontactcenter.com.br||11/08/2026 08:00||11/08/2026 11:30',
-    },
-    // Maria Silva: 15 calls totaling 02:35:20 (9320s)
-    {
-      id: 'n-3',
-      email_atendente: 'maria.silva@proativacontactcenter.com.br',
-      entrada: '11/08/2026 08:30',
-      saida: '11/08/2026 11:05:20',
-      data_iso: '2026-08-11',
-      tempo_segundos: 9320,
-      created_at: now,
-      fingerprint: 'maria.silva@proativacontactcenter.com.br||11/08/2026 08:30||11/08/2026 11:05:20',
-    },
-    // João Santos: 04:00:00 (14400s)
-    {
-      id: 'n-4',
-      email_atendente: 'joao.santos@proativacontactcenter.com.br',
-      entrada: '11/08/2026 09:00',
-      saida: '11/08/2026 13:00',
-      data_iso: '2026-08-11',
-      tempo_segundos: 14400,
-      created_at: now,
-      fingerprint: 'joao.santos@proativacontactcenter.com.br||11/08/2026 09:00||11/08/2026 13:00',
-    },
-    // Nuvidio sem operador para teste de inconsistências
-    {
-      id: 'n-5',
-      email_atendente: 'atendente.orfao@proativacontactcenter.com.br',
-      entrada: '11/08/2026 14:00',
-      saida: '11/08/2026 14:35',
-      data_iso: '2026-08-11',
-      tempo_segundos: 2100,
-      created_at: now,
-      fingerprint: 'atendente.orfao@proativacontactcenter.com.br||11/08/2026 14:00||11/08/2026 14:35',
-    },
-  ];
-
-  const sampleImportacoes: Importacao[] = [
-    {
-      id: 'imp-1',
-      tipo_base: 'operadores',
-      nome_arquivo: 'base_operadores_exemplo.xlsx',
-      quantidade_registros: 4,
-      data_importacao: now,
-      status: 'sucesso',
-      modo: 'substituir',
-    },
-    {
-      id: 'imp-2',
-      tipo_base: 'pausas',
-      nome_arquivo: 'base_pausas_exemplo.xlsx',
-      quantidade_registros: 6,
-      data_importacao: now,
-      status: 'sucesso',
-      modo: 'substituir',
-    },
-    {
-      id: 'imp-3',
-      tipo_base: 'nuvidio',
-      nome_arquivo: 'base_nuvidio_exemplo.csv',
-      quantidade_registros: 5,
-      data_importacao: now,
-      status: 'sucesso',
-      modo: 'substituir',
-    },
-  ];
-
-  dbState.operadores = sampleOperadores;
-  dbState.pausas = samplePausas;
-  dbState.nuvidio = sampleNuvidio;
-  dbState.importacoes = sampleImportacoes;
-
-  saveDatabase();
+  // Empty implementation - no mock data
 }
 
 // Initialize DB on module import

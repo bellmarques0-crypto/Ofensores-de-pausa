@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FilterState, FilterOptions } from '../types';
-import { Calendar, User, Package, UserCheck, RotateCcw, Search, ChevronDown, X } from 'lucide-react';
+import { Calendar, User, Package, UserCheck, RotateCcw, Search, ChevronDown, X, UserCog } from 'lucide-react';
 
 interface FilterBarProps {
   filter: FilterState;
@@ -132,6 +132,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       value: u,
     })) || [];
 
+  const supervisorItems =
+    options?.supervisores.map((s) => ({
+      label: s,
+      value: s,
+    })) || [];
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs mb-6">
       <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
@@ -148,7 +154,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
         {/* Data Inicial */}
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
@@ -185,6 +191,16 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           value={filter.operador}
           onChange={(val) => handleChange('operador', val)}
           items={operadorItems}
+        />
+
+        {/* Supervisor */}
+        <CustomCombobox
+          icon={<UserCog className="w-3.5 h-3.5 text-slate-400" />}
+          label="Supervisor"
+          placeholder="Nome do supervisor..."
+          value={filter.supervisor}
+          onChange={(val) => handleChange('supervisor', val)}
+          items={supervisorItems}
         />
 
         {/* Produto */}

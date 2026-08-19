@@ -11,10 +11,14 @@ import {
   RefreshCw,
   Check,
   X,
+  Download,
+  Sliders,
+  Zap,
 } from 'lucide-react';
 
 interface ImportBasesViewProps {
   onImportSuccess: () => void;
+  onNavigateToApi?: () => void;
 }
 
 type BaseType = 'operadores' | 'pausas' | 'nuvidio';
@@ -25,13 +29,17 @@ interface BaseUploadState {
   loadingPreview: boolean;
   error: string | null;
   mode: 'substituir' | 'adicionar';
+  manualMappings: Record<string, string>; // fieldKey -> chosenHeader
 }
 
-export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSuccess }) => {
+export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
+  onImportSuccess,
+  onNavigateToApi,
+}) => {
   const [bases, setBases] = useState<Record<BaseType, BaseUploadState>>({
-    operadores: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir' },
-    pausas: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir' },
-    nuvidio: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir' },
+    operadores: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
+    pausas: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
+    nuvidio: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
   });
 
   const [processingBase, setProcessingBase] = useState<BaseType | null>(null);
@@ -44,8 +52,8 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
       icon: Users,
       color: 'border-blue-200 bg-blue-50/50 text-blue-700',
       badgeColor: 'bg-blue-100/80 text-blue-800 border border-blue-200',
-      requiredCols: ['nome', 'email', 'INTERGRALL'],
-      description: 'Chaves de relacionamento: E-mail (Nuvidio) e INTERGRALL (Pausas).',
+      requiredCols: ['Nome', 'INTERGRALL', 'E-mail (opcional)', 'Produto (opcional)'],
+      description: 'Mapeia colaboradores e suas chaves de integração (INTERGRALL e E-mail).',
     },
     {
       type: 'pausas' as BaseType,
@@ -53,8 +61,8 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
       icon: Coffee,
       color: 'border-amber-200 bg-amber-50/50 text-amber-700',
       badgeColor: 'bg-amber-100/80 text-amber-800 border border-amber-200',
-      requiredCols: ['data', 'INTERGRALL', 'pausa', 'inicio', 'fim'],
-      description: 'Contém a definição do PRODUTO e tempos de pausas dos operadores.',
+      requiredCols: ['Data', 'INTERGRALL', 'Pausa', 'Início', 'Fim'],
+      description: 'Relatório do sistema de Pausas com horários de início, fim e produto.',
     },
     {
       type: 'nuvidio' as BaseType,
@@ -62,53 +70,60 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
       icon: PhoneCall,
       color: 'border-emerald-200 bg-emerald-50/50 text-emerald-700',
       badgeColor: 'bg-emerald-100/80 text-emerald-800 border border-emerald-200',
-      requiredCols: [
-        'Email do atendente',
-        'Atendente entrou na chamada (Formatado)',
-        'Atendente saiu da chamada (Formatado)',
-      ],
-      description: 'Calcula o tempo de Nuvidio exclusivamente por (Saída - Entrada).',
+      requiredCols: ['Email do atendente', 'Entrou na chamada', 'Saiu da chamada'],
+      description: 'Extrato de atendimento Nuvidio com entrada e saída dos colaboradores.',
     },
   ];
+
+  const requestPreview = async (type: BaseType, selectedFile: File, mappings?: Record<string, string>) => {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('tipo_base', type);
+    if (mappings && Object.keys(mappings).length > 0) {
+      formData.append('column_mappings', JSON.stringify(mappings));
+    }
+
+    const res = await fetch('/api/import/preview', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const responseText = await res.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Erro no servidor (${res.status}). Verifique se o arquivo é uma planilha válida.`);
+    }
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao validar colunas do arquivo.');
+    }
+
+    return data as PreviewData & {
+      requiredFields: Array<{ key: string; label: string; optional?: boolean }>;
+    };
+  };
 
   const handleFileSelect = async (type: BaseType, selectedFile: File | null) => {
     if (!selectedFile) return;
 
     setBases((prev) => ({
       ...prev,
-      [type]: { ...prev[type], file: selectedFile, loadingPreview: true, error: null },
+      [type]: { ...prev[type], file: selectedFile, loadingPreview: true, error: null, manualMappings: {} },
     }));
 
-    // Fetch Preview & Column Validation
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('tipo_base', type);
-
     try {
-      const res = await fetch('/api/import/preview', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const responseText = await res.text();
-      let data: any = {};
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        throw new Error(`Erro no servidor (${res.status}). Verifique se o arquivo é uma planilha válida.`);
-      }
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao validar colunas do arquivo.');
-      }
+      const data = await requestPreview(type, selectedFile);
 
       setBases((prev) => ({
         ...prev,
         [type]: {
           ...prev[type],
           loadingPreview: false,
-          preview: data as PreviewData,
-          error: data.valid ? null : `Colunas faltando: ${data.missingColumns.join(', ')}`,
+          preview: data,
+          manualMappings: data.mappedColumns || {},
+          error: data.valid ? null : `Colunas faltando: ${(data.missingColumns || []).join(', ')}. Selecione abaixo.`,
         },
       }));
     } catch (err: any) {
@@ -118,6 +133,43 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
           ...prev[type],
           loadingPreview: false,
           error: err.message || 'Falha ao analisar o arquivo.',
+        },
+      }));
+    }
+  };
+
+  const handleMappingChange = async (type: BaseType, fieldKey: string, chosenHeader: string) => {
+    const currentState = bases[type];
+    if (!currentState.file) return;
+
+    const newMappings = {
+      ...currentState.manualMappings,
+      [fieldKey]: chosenHeader,
+    };
+
+    setBases((prev) => ({
+      ...prev,
+      [type]: { ...prev[type], manualMappings: newMappings, loadingPreview: true },
+    }));
+
+    try {
+      const data = await requestPreview(type, currentState.file, newMappings);
+      setBases((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          loadingPreview: false,
+          preview: data,
+          error: data.valid ? null : `Colunas faltando: ${(data.missingColumns || []).join(', ')}`,
+        },
+      }));
+    } catch (err: any) {
+      setBases((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          loadingPreview: false,
+          error: err.message || 'Erro ao remapear colunas.',
         },
       }));
     }
@@ -134,6 +186,9 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
     formData.append('file', baseState.file);
     formData.append('tipo_base', type);
     formData.append('modo', baseState.mode);
+    if (Object.keys(baseState.manualMappings).length > 0) {
+      formData.append('column_mappings', JSON.stringify(baseState.manualMappings));
+    }
 
     try {
       const res = await fetch('/api/import/process', {
@@ -161,7 +216,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
       // Reset base file state after success
       setBases((prev) => ({
         ...prev,
-        [type]: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir' },
+        [type]: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
       }));
 
       onImportSuccess();
@@ -185,12 +240,24 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
             Importação e Validação de Bases
           </h2>
           <p className="text-xs text-blue-200 mt-1 max-w-3xl">
-            Importe os arquivos Excel (.xlsx, .xls) ou CSV. O sistema valida automaticamente o nome das
-            colunas exigidas, permitindo pequenas variações de acentos e maiúsculas.
+            Suba arquivos .xlsx, .xls ou .csv. O sistema reconhece os cabeçalhos automaticamente e permite remapear colunas caso necessário.
           </p>
         </div>
-        <div className="text-xs bg-blue-800/80 border border-blue-700/80 px-3 py-2 rounded-lg text-blue-200 shrink-0">
-          ✨ Aceita .xlsx, .xls e .csv
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {onNavigateToApi && (
+            <button
+              type="button"
+              onClick={onNavigateToApi}
+              className="text-xs bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-2 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Zap className="w-4 h-4" />
+              Sincronizar Operadores via API
+            </button>
+          )}
+          <div className="text-xs bg-blue-800/80 border border-blue-700/80 px-3 py-2 rounded-lg text-blue-200 flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            Suporta Excel e CSV
+          </div>
         </div>
       </div>
 
@@ -247,12 +314,36 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
                   </div>
                 </div>
 
-                <p className="text-xs text-slate-500 mb-4">{config.description}</p>
+                <p className="text-xs text-slate-500 mb-3">{config.description}</p>
+
+                {/* Download Template Link & API Alternative */}
+                <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
+                  <a
+                    href={`/api/import/template/${config.type}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar modelo (.xlsx)
+                  </a>
+
+                  {config.type === 'operadores' && onNavigateToApi && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToApi}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-300 transition-colors cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                      Buscar via API (Sem Planilha)
+                    </button>
+                  )}
+                </div>
 
                 {/* Required Columns Pill List */}
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
                   <span className="text-[11px] font-bold text-slate-600 block uppercase tracking-wider mb-1.5">
-                    Colunas Obrigatórias:
+                    Campos Esperados:
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {config.requiredCols.map((col) => (
@@ -269,7 +360,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
                 {/* Dropzone File Selector */}
                 <div className="mb-4">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Selecionar Arquivo
+                    Selecionar Planilha
                   </label>
                   <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-4 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-white">
                     <input
@@ -293,10 +384,10 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
                     ) : (
                       <div>
                         <p className="text-xs font-semibold text-blue-600">
-                          Clique aqui para escolher o arquivo
+                          Clique para selecionar arquivo
                         </p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          Formatos .xlsx, .xls ou .csv
+                          Arquivos .xlsx, .xls ou .csv
                         </p>
                       </div>
                     )}
@@ -307,83 +398,125 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
                 {state.loadingPreview && (
                   <div className="flex items-center justify-center gap-2 py-3 text-xs text-slate-500">
                     <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                    Validando colunas do arquivo...
+                    Analisando estrutura da planilha...
                   </div>
                 )}
 
-                {/* Column Validation Results */}
+                {/* Column Validation & Manual Mapping */}
                 {state.preview && !state.loadingPreview && (
                   <div className="space-y-3 mb-4">
                     <div
                       className={`p-3 rounded-lg border text-xs ${
                         state.preview.valid
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                          : 'bg-amber-50 border-amber-200 text-amber-800'
                       }`}
                     >
                       <div className="flex items-center gap-2 font-bold mb-1">
                         {state.preview.valid ? (
                           <>
                             <Check className="w-4 h-4 text-emerald-600" />
-                            <span>Colunas Validadas ({state.preview.totalRows} linhas encontradas)</span>
+                            <span>Planilha pronta ({state.preview.totalRows} linhas)</span>
                           </>
                         ) : (
                           <>
-                            <X className="w-4 h-4 text-rose-600" />
-                            <span>Colunas Faltantes Detectadas!</span>
+                            <Sliders className="w-4 h-4 text-amber-600" />
+                            <span>Mapeie os campos abaixo:</span>
                           </>
                         )}
                       </div>
 
-                      {!state.preview.valid && (
-                        <p className="text-[11px] text-rose-700 font-medium">
-                          Faltando: {state.preview.missingColumns.join(', ')}
+                      {state.preview.missingColumns && state.preview.missingColumns.length > 0 && (
+                        <p className="text-[11px] text-amber-800 font-medium mt-1">
+                          Escolha no menu suspenso a coluna correspondente a cada campo faltante.
                         </p>
                       )}
                     </div>
 
-                    {/* Mode Selector */}
-                    {state.preview.valid && (
-                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                          Modo de Importação:
-                        </label>
-                        <div className="flex gap-4">
-                          <label className="flex items-center gap-1.5 text-xs text-slate-800 font-medium cursor-pointer">
-                            <input
-                              type="radio"
-                              name={`mode-${config.type}`}
-                              value="substituir"
-                              checked={state.mode === 'substituir'}
-                              onChange={() =>
-                                setBases((prev) => ({
-                                  ...prev,
-                                  [config.type]: { ...prev[config.type], mode: 'substituir' },
-                                }))
-                              }
-                              className="text-blue-600"
-                            />
-                            Substituir base
-                          </label>
-                          <label className="flex items-center gap-1.5 text-xs text-slate-800 font-medium cursor-pointer">
-                            <input
-                              type="radio"
-                              name={`mode-${config.type}`}
-                              value="adicionar"
-                              checked={state.mode === 'adicionar'}
-                              onChange={() =>
-                                setBases((prev) => ({
-                                  ...prev,
-                                  [config.type]: { ...prev[config.type], mode: 'adicionar' },
-                                }))
-                              }
-                              className="text-blue-600"
-                            />
-                            Adicionar à existente
-                          </label>
-                        </div>
+                    {/* Manual Column Remapping Selectors */}
+                    {(state.preview as any).requiredFields && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                          Mapeamento de Colunas:
+                        </span>
+                        {((state.preview as any).requiredFields as Array<{ key: string; label: string; optional?: boolean }>).map(
+                          (field) => {
+                            const currentMatch = state.manualMappings[field.key] || '';
+                            const isMissing = !currentMatch && !field.optional;
+
+                            return (
+                              <div key={field.key} className="flex flex-col gap-1">
+                                <label className="text-[11px] font-medium text-slate-600 flex items-center justify-between">
+                                  <span>
+                                    {field.label} {field.optional && <span className="text-slate-400 font-normal">(opcional)</span>}:
+                                  </span>
+                                  {currentMatch ? (
+                                    <span className="text-[10px] text-emerald-600 font-bold">✓ Mapeado</span>
+                                  ) : isMissing ? (
+                                    <span className="text-[10px] text-rose-600 font-bold">⚠️ Selecione</span>
+                                  ) : null}
+                                </label>
+                                <select
+                                  value={currentMatch}
+                                  onChange={(e) => handleMappingChange(config.type, field.key, e.target.value)}
+                                  className={`text-xs p-1.5 rounded-md border font-mono bg-white cursor-pointer ${
+                                    isMissing ? 'border-rose-400 bg-rose-50 text-rose-900' : 'border-slate-300 text-slate-800'
+                                  }`}
+                                >
+                                  <option value="">-- Escolha uma coluna --</option>
+                                  {state.preview?.columnsFound.map((col) => (
+                                    <option key={col} value={col}>
+                                      {col}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          }
+                        )}
                       </div>
                     )}
+
+                    {/* Mode Selector */}
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Modo de Importação:
+                      </label>
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-1.5 text-xs text-slate-800 font-medium cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`mode-${config.type}`}
+                            value="substituir"
+                            checked={state.mode === 'substituir'}
+                            onChange={() =>
+                              setBases((prev) => ({
+                                ...prev,
+                                [config.type]: { ...prev[config.type], mode: 'substituir' },
+                              }))
+                            }
+                            className="text-blue-600"
+                          />
+                          Substituir base
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs text-slate-800 font-medium cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`mode-${config.type}`}
+                            value="adicionar"
+                            checked={state.mode === 'adicionar'}
+                            onChange={() =>
+                              setBases((prev) => ({
+                                ...prev,
+                                [config.type]: { ...prev[config.type], mode: 'adicionar' },
+                              }))
+                            }
+                            className="text-blue-600"
+                          />
+                          Adicionar à existente
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -408,7 +541,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({ onImportSucces
                 {isProcessing ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    Processando...
+                    Importando Base...
                   </>
                 ) : (
                   <>

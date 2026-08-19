@@ -25,6 +25,49 @@ export function normalizeUsername(user: any): string {
   return str;
 }
 
+export function cleanSearchString(str: any): string {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ') // replace non-alphanumeric with space
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Checks if two usernames match directly, via substring, or by numeric ending / digits.
+ * e.g. "epapro0561" matches "0561", "561", "epapro0561", "epapro0561.0"
+ */
+export function matchUserOrNumericSuffix(strA?: any, strB?: any): boolean {
+  if (!strA || !strB) return false;
+
+  const normA = normalizeUsername(strA);
+  const normB = normalizeUsername(strB);
+
+  if (!normA || !normB) return false;
+
+  // 1. Direct match
+  if (normA === normB) return true;
+
+  // 2. Substring match
+  if (normA.length >= 2 && normB.length >= 2) {
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+  }
+
+  // 3. Numeric ending match (e.g. '0561' at the end of 'epapro0561')
+  const digitsA = normA.match(/\d+$/)?.[0] || normA.replace(/\D/g, '');
+  const digitsB = normB.match(/\d+$/)?.[0] || normB.replace(/\D/g, '');
+
+  if (digitsA && digitsB && digitsA.length >= 2 && digitsB.length >= 2) {
+    if (digitsA === digitsB) return true;
+    if (normA.endsWith(digitsB) || normB.endsWith(digitsA)) return true;
+  }
+
+  return false;
+}
+
 /**
  * Normalizes column names for flexible matching
  * e.g. "Email do atendente" -> "emaildoatendente"
@@ -171,38 +214,141 @@ export function formatSecondsToHHMMSS(seconds: number): string {
  * Handles DD/MM/YYYY, YYYY-MM-DD, DD/MM/YYYY HH:mm, etc.
  */
 export function parseDateToISO(dateInput: any): string {
-  if (!dateInput) return '';
+  if (dateInput === null || dateInput === undefined) return '';
 
-  if (typeof dateInput === 'number') {
-    // Excel serial date
-    const dateObj = new Date(Math.round((dateInput - 25569) * 86400 * 1000));
+  if (dateInput instanceof Date) {
+    if (isNaN(dateInput.getTime())) return '';
+    const y = dateInput.getFullYear();
+    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+    const d = String(dateInput.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // Handle number or numeric string (Excel serial date e.g. 46237 or "46237.39058")
+  const numCandidate = typeof dateInput === 'number'
+    ? dateInput
+    : (typeof dateInput === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(dateInput) ? parseFloat(dateInput.trim()) : NaN);
+
+  if (!isNaN(numCandidate) && numCandidate > 10000 && numCandidate < 100000) {
+    // Excel serial date (days since Dec 30, 1899)
+    const dateObj = new Date(Math.round((numCandidate - 25569) * 86400 * 1000));
     if (!isNaN(dateObj.getTime())) {
-      return dateObj.toISOString().split('T')[0];
+      const y = dateObj.getUTCFullYear();
+      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
   }
 
   const str = String(dateInput).trim();
   if (!str) return '';
 
-  // Match DD/MM/YYYY
-  const brMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (brMatch) {
-    const day = brMatch[1].padStart(2, '0');
-    const month = brMatch[2].padStart(2, '0');
-    const year = brMatch[3];
+  // Ignore pure time strings like "09:22:27" or "09:22"
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(str)) {
+    return '';
+  }
+
+  // 1. ISO format: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD (e.g. "2026-08-03" or "2026-08-03T17:46:26")
+  const isoMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
+  if (isoMatch) {
+    const year = isoMatch[1];
+    const month = String(parseInt(isoMatch[2], 10)).padStart(2, '0');
+    const day = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
-  // Match YYYY-MM-DD
-  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  // 2. Slash/dash/dot date: p1 / p2 / p3 (e.g. "8/3/26", "03/08/2026", "3/8/2026 09:22:27")
+  const brMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})/);
+  if (brMatch) {
+    const rawP1 = brMatch[1];
+    const rawP2 = brMatch[2];
+    const p1 = parseInt(rawP1, 10);
+    const p2 = parseInt(rawP2, 10);
+    let year = brMatch[3];
+    if (year.length === 2) {
+      year = `20${year}`;
+    }
+
+    let day = p1;
+    let month = p2;
+
+    if (p1 > 12) {
+      day = p1;
+      month = p2;
+    } else if (p2 > 12) {
+      day = p2;
+      month = p1;
+    } else {
+      // Both <= 12 (e.g. "8/3/26" vs "03/08/2026")
+      if (p1 === 8) {
+        // e.g. 8/3/26 -> month 8, day 3
+        month = p1;
+        day = p2;
+      } else if (p2 === 8) {
+        // e.g. 03/08/2026 -> day 3, month 8
+        month = p2;
+        day = p1;
+      } else if (rawP1.length === 1 && rawP2.length >= 1) {
+        // Single digit first number, e.g. 8/3/26, 9/3/26 -> M/D/Y format
+        month = p1;
+        day = p2;
+      } else {
+        day = p1;
+        month = p2;
+      }
+    }
+
+    const mStr = String(month).padStart(2, '0');
+    const dStr = String(day).padStart(2, '0');
+    return `${year}-${mStr}-${dStr}`;
   }
 
-  // Fallback to JS Date parse
+  // 3. Substring match for any DD/MM/YYYY or M/D/YY anywhere in the string
+  const subBrMatch = str.match(/(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})/);
+  if (subBrMatch) {
+    const rawP1 = subBrMatch[1];
+    const rawP2 = subBrMatch[2];
+    const p1 = parseInt(rawP1, 10);
+    const p2 = parseInt(rawP2, 10);
+    let year = subBrMatch[3];
+    if (year.length === 2) {
+      year = `20${year}`;
+    }
+    let day = p1;
+    let month = p2;
+    if (p1 > 12) {
+      day = p1;
+      month = p2;
+    } else if (p2 > 12) {
+      day = p2;
+      month = p1;
+    } else {
+      if (p1 === 8) {
+        month = p1;
+        day = p2;
+      } else if (p2 === 8) {
+        month = p2;
+        day = p1;
+      } else if (rawP1.length === 1 && rawP2.length >= 1) {
+        month = p1;
+        day = p2;
+      } else {
+        day = p1;
+        month = p2;
+      }
+    }
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  // 4. JS Date fallback
   const parsed = new Date(str);
   if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().split('T')[0];
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    if (y >= 2000 && y <= 2100) {
+      return `${y}-${m}-${d}`;
+    }
   }
 
   return '';

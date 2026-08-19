@@ -23,6 +23,7 @@ router.get('/reports/operator', (req: Request, res: Response) => {
       operador: req.query.operador as string,
       produto: req.query.produto as string,
       usuario: req.query.usuario as string,
+      supervisor: req.query.supervisor as string,
     };
 
     const report = generateOperatorReport(filter);
@@ -45,6 +46,7 @@ router.get('/reports/product', (req: Request, res: Response) => {
       operador: req.query.operador as string,
       produto: req.query.produto as string,
       usuario: req.query.usuario as string,
+      supervisor: req.query.supervisor as string,
     };
 
     const report = generateProductReport(filter);
@@ -67,6 +69,7 @@ router.get('/reports/summary', (req: Request, res: Response) => {
       operador: req.query.operador as string,
       produto: req.query.produto as string,
       usuario: req.query.usuario as string,
+      supervisor: req.query.supervisor as string,
     };
 
     const summary = generateDashboardSummary(filter);
@@ -109,6 +112,7 @@ router.get('/filters/options', (req: Request, res: Response) => {
       nome: o.nome,
       email: o.email,
       usuario: o.usuario,
+      supervisor: o.supervisor || 'Não Informado',
     }));
 
     const produtos = Array.from(
@@ -129,10 +133,19 @@ router.get('/filters/options', (req: Request, res: Response) => {
       )
     ).sort();
 
+    const supervisores = Array.from(
+      new Set(
+        db.operadores
+          .map((o) => o.supervisor || 'Não Informado')
+          .filter((s) => Boolean(s))
+      )
+    ).sort();
+
     return res.json({
       operadores,
       produtos,
       usuarios,
+      supervisores,
       totalOperadoresInDb: db.operadores.length,
       totalPausasInDb: db.pausas.length,
       totalNuvidioInDb: db.nuvidio.length,
@@ -156,6 +169,7 @@ router.get('/export/operator', async (req: Request, res: Response) => {
       operador: req.query.operador as string,
       produto: req.query.produto as string,
       usuario: req.query.usuario as string,
+      supervisor: req.query.supervisor as string,
     };
 
     const rows = generateOperatorReport(filter);
@@ -165,6 +179,7 @@ router.get('/export/operator', async (req: Request, res: Response) => {
 
     worksheet.columns = [
       { header: 'Operador', key: 'operadorNome', width: 30 },
+      { header: 'Supervisor', key: 'supervisor', width: 25 },
       { header: 'Usuário', key: 'usuario', width: 20 },
       { header: 'E-mail', key: 'operadorEmail', width: 35 },
       { header: 'Produto', key: 'produto', width: 20 },

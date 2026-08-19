@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { loadDatabase } from './server/db';
 import importRoutes from './server/routes/import';
 import apiRoutes from './server/routes/api';
+import integrationsRoutes from './server/routes/integrations';
 
 async function startServer() {
   // Ensure DB is initialized
@@ -18,6 +19,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // API Routes
+  app.use('/api/integrations', integrationsRoutes);
   app.use('/api/import', importRoutes);
   app.use('/api', apiRoutes);
 

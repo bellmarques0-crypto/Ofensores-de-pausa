@@ -4,6 +4,7 @@ export interface FilterState {
   operador: string;
   produto: string;
   usuario: string;
+  supervisor: string;
 }
 
 export interface OperatorReportRow {
@@ -12,6 +13,7 @@ export interface OperatorReportRow {
   operadorEmail: string;
   usuario: string;
   produto: string;
+  supervisor: string;
   qtdNuvidio: number;
   tempoNuvidioSec: number;
   tempoNuvidioFormatted: string;
@@ -49,9 +51,10 @@ export interface DashboardSummary {
 }
 
 export interface FilterOptions {
-  operadores: { id: string; nome: string; email: string; usuario: string }[];
+  operadores: { id: string; nome: string; email: string; usuario: string; supervisor?: string }[];
   produtos: string[];
   usuarios: string[];
+  supervisores: string[];
   totalOperadoresInDb: number;
   totalPausasInDb: number;
   totalNuvidioInDb: number;
@@ -68,3 +71,134 @@ export interface PreviewData {
   mappedColumns: Record<string, string>;
   sampleRows: any[];
 }
+
+export interface ApiIntegracaoUsuarios {
+  enabled: boolean;
+  url: string;
+  metodo: 'GET' | 'POST';
+  auth_tipo: 'none' | 'bearer' | 'api_key' | 'basic';
+  auth_token?: string;
+  api_key_header?: string;
+  api_key_valor?: string;
+  basic_user?: string;
+  basic_pass?: string;
+  custom_headers?: Record<string, string>;
+  request_body?: string;
+  json_path?: string;
+  mapeamento: {
+    nome: string;
+    usuario: string;
+    email?: string;
+    produto?: string;
+    supervisor?: string;
+  };
+  modo_padrao: 'substituir' | 'adicionar';
+  ultima_sincronizacao?: string;
+  ultimo_status?: 'sucesso' | 'erro' | 'nunca';
+  ultimo_total_importados?: number;
+  ultimo_erro_msg?: string;
+}
+
+export interface ApiTestResult {
+  success: boolean;
+  status: number;
+  statusText: string;
+  elapsedMs: number;
+  totalFound: number;
+  pathUsed: string;
+  detectedFields: string[];
+  suggestedMapping: {
+    nome: string;
+    usuario: string;
+    email?: string;
+    produto?: string;
+    supervisor?: string;
+  };
+  sampleRecords: any[];
+  error?: string;
+}
+
+export interface ApiSyncResult {
+  success: boolean;
+  message: string;
+  importedCount: number;
+  skippedCount: number;
+  totalFound: number;
+  totalOperadoresAtuais: number;
+  mode: string;
+  pathUsed: string;
+  timestamp: string;
+  elapsedMs: number;
+  error?: string;
+}
+
+export interface SqlIntegracaoPausas {
+  enabled: boolean;
+  modo_execucao: 'sqlserver' | 'postgres' | 'mysql' | 'rest_api' | 'direct_paste';
+  url?: string;
+  metodo?: 'GET' | 'POST';
+  auth_tipo?: 'none' | 'bearer' | 'api_key' | 'basic';
+  auth_token?: string;
+  api_key_header?: string;
+  api_key_valor?: string;
+  basic_user?: string;
+  basic_pass?: string;
+  custom_headers?: Record<string, string>;
+  json_path?: string;
+  db_host?: string;
+  db_port?: number;
+  db_name?: string;
+  db_user?: string;
+  db_password?: string;
+  db_ssl?: boolean;
+  sql_query: string;
+  mapeamento: {
+    data: string;
+    intergrall: string;
+    pausa: string;
+    inicio: string;
+    fim: string;
+    tempo?: string;
+    produto?: string;
+  };
+  modo_padrao: 'substituir' | 'adicionar';
+  ultima_sincronizacao?: string;
+  ultimo_status?: 'sucesso' | 'erro' | 'nunca';
+  ultimo_total_importados?: number;
+  ultimo_erro_msg?: string;
+}
+
+export interface SqlTestResult {
+  success: boolean;
+  status?: number;
+  elapsedMs: number;
+  totalFound: number;
+  pathUsed?: string;
+  detectedColumns: string[];
+  suggestedMapping: {
+    data: string;
+    intergrall: string;
+    pausa: string;
+    inicio: string;
+    fim: string;
+    tempo?: string;
+    produto?: string;
+  };
+  sampleRecords: any[];
+  error?: string;
+}
+
+export interface SqlSyncResult {
+  success: boolean;
+  message: string;
+  importedCount: number;
+  skippedCount: number;
+  totalFound: number;
+  totalPausasAtuais: number;
+  mode: string;
+  timestamp: string;
+  elapsedMs: number;
+  error?: string;
+}
+
+

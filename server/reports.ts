@@ -1,5 +1,12 @@
 import { getDb, Operador, Pausa, Nuvidio } from './db';
-import { formatSecondsToHHMMSS, parseDateToISO } from './utils';
+import {
+  formatSecondsToHHMMSS,
+  parseDateToISO,
+  normalizeUsername,
+  normalizeEmail,
+  matchUserOrNumericSuffix,
+  cleanSearchString,
+} from './utils';
 
 export interface ReportFilter {
   dataInicio?: string;
@@ -7,6 +14,7 @@ export interface ReportFilter {
   operador?: string;
   produto?: string;
   usuario?: string;
+  supervisor?: string;
 }
 
 export interface OperatorReportRow {
@@ -15,6 +23,7 @@ export interface OperatorReportRow {
   operadorEmail: string;
   usuario: string;
   produto: string;
+  supervisor: string;
   qtdNuvidio: number;
   tempoNuvidioSec: number;
   tempoNuvidioFormatted: string;
@@ -66,7 +75,7 @@ function toIsoDate(dateStr?: string): string | null {
 
 /**
  * Flexible attendant identifier matching:
- * Matches Nuvidio attendant string against Operador email, usuario (INTERGRALL), name, or email prefix.
+ * Matches Nuvidio or Pausas attendant string against Operador email, usuario (INTERGRALL), name, or email prefix.
  */
 export function findOperatorForIdentifier(
   identifier: string,
@@ -74,43 +83,101 @@ export function findOperatorForIdentifier(
 ): Operador | null {
   if (!identifier) return null;
 
-  const clean = identifier.trim().toLowerCase();
-  if (!clean) return null;
+  const rawId = String(identifier).trim();
+  if (!rawId) return null;
 
-  const cleanPrefix = clean.split('@')[0];
+  const cleanUser = normalizeUsername(rawId);
+  const cleanEmail = normalizeEmail(rawId);
+  const cleanTextId = cleanSearchString(rawId);
 
-  // 1. Exact match on email, usuario, or nome
+  if (!cleanUser && !cleanEmail && !cleanTextId) return null;
+
+  const rawPrefix = rawId.includes('@') ? rawId.split('@')[0] : rawId;
+  const cleanPrefixText = cleanSearchString(rawPrefix);
+
+  const STOP_WORDS = new Set(['com', 'br', 'de', 'da', 'dos', 'do', 'del', 'e', 'proativacontactcenter', 'gmail', 'hotmail', 'outlook']);
+
+  const idTokens = cleanPrefixText
+    .split(' ')
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+
+  // 1. Pass 1: Direct or Numeric Suffix / Username / Email / Name match
   for (const op of operadores) {
-    const opEmail = (op.email || '').trim().toLowerCase();
-    const opUser = (op.usuario || '').trim().toLowerCase();
+    const opEmail = normalizeEmail(op.email);
+    const opUser = normalizeUsername(op.usuario);
     const opName = (op.nome || '').trim().toLowerCase();
 
-    if (clean === opEmail || clean === opUser || clean === opName) {
+    if (
+      matchUserOrNumericSuffix(rawId, opUser) ||
+      matchUserOrNumericSuffix(rawId, opEmail) ||
+      matchUserOrNumericSuffix(rawId, opName) ||
+      matchUserOrNumericSuffix(rawPrefix, opUser) ||
+      matchUserOrNumericSuffix(rawPrefix, opEmail) ||
+      matchUserOrNumericSuffix(rawPrefix, opName)
+    ) {
       return op;
     }
   }
 
-  // 2. Prefix match (e.g. taina.martins matches taina.martins@domain.com)
+  // 2. Pass 2: Cleaned String Exact Equality
   for (const op of operadores) {
-    const opEmail = (op.email || '').trim().toLowerCase();
-    const opEmailPrefix = opEmail.split('@')[0];
-    const opUser = (op.usuario || '').trim().toLowerCase();
+    const opNameClean = cleanSearchString(op.nome);
+    const opEmailClean = cleanSearchString(op.email);
+    const opUserClean = cleanSearchString(op.usuario);
+    const opEmailPrefixClean = cleanSearchString((op.email || '').split('@')[0]);
 
-    if (cleanPrefix && (cleanPrefix === opEmailPrefix || cleanPrefix === opUser)) {
+    if (
+      (cleanTextId && (cleanTextId === opNameClean || cleanTextId === opEmailClean || cleanTextId === opUserClean || cleanTextId === opEmailPrefixClean)) ||
+      (cleanPrefixText && (cleanPrefixText === opNameClean || cleanPrefixText === opEmailClean || cleanPrefixText === opUserClean || cleanPrefixText === opEmailPrefixClean))
+    ) {
       return op;
     }
   }
 
-  // 3. Substring match
+  // 3. Pass 3: Substring Containment (when length >= 3)
   for (const op of operadores) {
-    const opUser = (op.usuario || '').trim().toLowerCase();
-    const opName = (op.nome || '').trim().toLowerCase();
+    const opNameClean = cleanSearchString(op.nome);
+    const opEmailClean = cleanSearchString(op.email);
+    const opEmailPrefixClean = cleanSearchString((op.email || '').split('@')[0]);
 
-    if (opUser && opUser.length >= 3 && clean.includes(opUser)) {
-      return op;
+    if (cleanPrefixText.length >= 3) {
+      if (
+        (opNameClean.length >= 3 && (opNameClean.includes(cleanPrefixText) || cleanPrefixText.includes(opNameClean))) ||
+        (opEmailPrefixClean.length >= 3 && (opEmailPrefixClean.includes(cleanPrefixText) || cleanPrefixText.includes(opEmailPrefixClean))) ||
+        (opEmailClean.length >= 3 && opEmailClean.includes(cleanPrefixText))
+      ) {
+        return op;
+      }
     }
-    if (opName && opName.length >= 3 && clean.includes(opName)) {
-      return op;
+  }
+
+  // 4. Pass 4: Token Overlap (Matching Name / Email Tokens)
+  if (idTokens.length >= 2) {
+    for (const op of operadores) {
+      const opNameTokens = new Set(cleanSearchString(op.nome).split(' '));
+      const opEmailTokens = new Set(cleanSearchString((op.email || '').split('@')[0]).split(' '));
+
+      const matchInName = idTokens.every((t) => opNameTokens.has(t));
+      const matchInEmail = idTokens.every((t) => opEmailTokens.has(t));
+
+      if (matchInName || matchInEmail) {
+        return op;
+      }
+    }
+  }
+
+  // 5. Pass 5: Unique First Name or Username match (if idTokens has 1 token and length >= 4)
+  if (idTokens.length === 1 && idTokens[0].length >= 4) {
+    const singleToken = idTokens[0];
+    const candidateOps = operadores.filter((op) => {
+      const opFirstName = cleanSearchString(op.nome).split(' ')[0];
+      const opUser = cleanSearchString(op.usuario);
+      const opEmailPrefix = cleanSearchString((op.email || '').split('@')[0]);
+      return opFirstName === singleToken || opUser === singleToken || opEmailPrefix === singleToken;
+    });
+
+    if (candidateOps.length === 1) {
+      return candidateOps[0];
     }
   }
 
@@ -129,32 +196,61 @@ export function filterRecords(dbFilter: ReportFilter) {
   const opSearch = (dbFilter.operador || '').trim().toLowerCase();
   const prodSearch = (dbFilter.produto || '').trim().toLowerCase();
   const userSearch = (dbFilter.usuario || '').trim().toLowerCase();
+  const normUserSearch = normalizeUsername(dbFilter.usuario);
+  const supSearch = (dbFilter.supervisor || '').trim().toLowerCase();
 
   // Filter Operadores
   const filteredOperadores = db.operadores.filter((op) => {
-    if (userSearch && op.usuario.toLowerCase() !== userSearch) return false;
+    if (userSearch) {
+      const normOpUser = normalizeUsername(op.usuario);
+      const matchNorm = normUserSearch && matchUserOrNumericSuffix(normOpUser, normUserSearch);
+      const matchInc = op.usuario.toLowerCase().includes(userSearch);
+      if (!matchNorm && !matchInc) return false;
+    }
+    if (supSearch && (op.supervisor || 'Não Informado').toLowerCase() !== supSearch) return false;
     if (opSearch) {
       const matchName = op.nome.toLowerCase().includes(opSearch);
       const matchEmail = op.email.toLowerCase().includes(opSearch);
-      const matchUser = op.usuario.toLowerCase().includes(opSearch);
-      if (!matchName && !matchEmail && !matchUser) return false;
+      const matchUser = op.usuario.toLowerCase().includes(opSearch) || matchUserOrNumericSuffix(op.usuario, opSearch);
+      const matchSup = (op.supervisor || '').toLowerCase().includes(opSearch);
+      if (!matchName && !matchEmail && !matchUser && !matchSup) return false;
     }
     return true;
   });
 
   // Filter Pausas
   const filteredPausas = db.pausas.filter((p) => {
-    if (isoStart && p.data_iso && p.data_iso < isoStart) return false;
-    if (isoEnd && p.data_iso && p.data_iso > isoEnd) return false;
-    if (prodSearch && p.produto.toLowerCase() !== prodSearch) return false;
-    if (userSearch && p.usuario.toLowerCase() !== userSearch) return false;
+    const pDateIso = parseDateToISO(p.data) || parseDateToISO(p.data_iso) || parseDateToISO(p.inicio);
+    if (isoStart && (!pDateIso || pDateIso < isoStart)) return false;
+    if (isoEnd && (!pDateIso || pDateIso > isoEnd)) return false;
+    if (prodSearch) {
+      const pProd = (p.produto || '').trim().toLowerCase();
+      const normProdSearch = prodSearch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const normPProd = pProd.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+      const matchExact = pProd === prodSearch || normPProd === normProdSearch;
+      const matchContains = pProd.includes(prodSearch) || prodSearch.includes(pProd) || normPProd.includes(normProdSearch) || normProdSearch.includes(normPProd);
+
+      const pBase = normPProd.split(/[-_\s]/)[0];
+      const searchBase = normProdSearch.split(/[-_\s]/)[0];
+      const matchBase = (pBase.length >= 3 && searchBase.length >= 3) && (pBase === searchBase || pBase.includes(searchBase) || searchBase.includes(pBase));
+
+      if (!matchExact && !matchContains && !matchBase) return false;
+    }
+    if (userSearch) {
+      const normPausUser = normalizeUsername(p.usuario);
+      const matchNorm = normUserSearch && matchUserOrNumericSuffix(normPausUser, normUserSearch);
+      const matchInc = p.usuario.toLowerCase().includes(userSearch);
+      if (!matchNorm && !matchInc) return false;
+    }
     return true;
   });
 
   // Filter Nuvidio
   const filteredNuvidio = db.nuvidio.filter((n) => {
-    if (isoStart && n.data_iso && n.data_iso < isoStart) return false;
-    if (isoEnd && n.data_iso && n.data_iso > isoEnd) return false;
+    const nDateIso = parseDateToISO(n.data_iso) || parseDateToISO(n.entrada);
+    if (isoStart && (!nDateIso || nDateIso < isoStart)) return false;
+    if (isoEnd && (!nDateIso || nDateIso > isoEnd)) return false;
     return true;
   });
 
@@ -173,7 +269,7 @@ export function filterRecords(dbFilter: ReportFilter) {
 export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[] {
   const { operadores, pausas, nuvidio, allDbPausas } = filterRecords(filter);
 
-  // Group Nuvidio by matched Operador ID (only for operators registered in db.operadores)
+  // Group Nuvidio by matched Operador ID (only for operators in db.operadores)
   interface NuvidioAgg {
     count: number;
     totalSeconds: number;
@@ -192,27 +288,10 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
 
   // Helper function to match pausas to an operator
   function getPausasForOp(op: Operador, pausaList: Pausa[]): Pausa[] {
-    let opUser = (op.usuario || '').trim().toLowerCase();
-    if (opUser.endsWith('.0')) opUser = opUser.slice(0, -2);
-
-    const opEmail = (op.email || '').trim().toLowerCase();
-    const opEmailPrefix = opEmail.split('@')[0];
-    const opName = (op.nome || '').trim().toLowerCase();
-
     return pausaList.filter((p) => {
-      let pUser = (p.usuario || '').trim().toLowerCase();
-      if (pUser.endsWith('.0')) pUser = pUser.slice(0, -2);
-      if (!pUser) return false;
-
-      return (
-        pUser === opUser ||
-        pUser === opEmail ||
-        pUser === opEmailPrefix ||
-        pUser === opName ||
-        (opUser && opUser.length >= 2 && (pUser.includes(opUser) || opUser.includes(pUser))) ||
-        (opEmailPrefix && opEmailPrefix.length >= 2 && (pUser.includes(opEmailPrefix) || opEmailPrefix.includes(pUser))) ||
-        (opName && opName.length >= 3 && (pUser.includes(opName) || opName.includes(pUser)))
-      );
+      if (!p.usuario) return false;
+      const matched = findOperatorForIdentifier(p.usuario, [op]);
+      return matched?.id === op.id;
     });
   }
 
@@ -264,7 +343,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
 
   const rowsMap = new Map<string, OperatorReportRow>();
 
-  // Process ONLY operators registered in Operadores base
+  // Process ONLY operators registered in db.operadores
   for (const op of operadores) {
     const nuvData = nuvidioByOpId.get(op.id) || { count: 0, totalSeconds: 0 };
     const opPausas = getPausasForOp(op, pausas);
@@ -315,6 +394,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
           operadorEmail: op.email,
           usuario: op.usuario,
           produto: pg.produto,
+          supervisor: op.supervisor || 'Não Informado',
           qtdNuvidio: nuvData.count,
           tempoNuvidioSec: nuvData.totalSeconds,
           tempoNuvidioFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
@@ -342,6 +422,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
             operadorEmail: op.email,
             usuario: op.usuario,
             produto: pg.produto,
+            supervisor: op.supervisor || 'Não Informado',
             qtdNuvidio: allocatedNuvCount,
             tempoNuvidioSec: allocatedNuvSec,
             tempoNuvidioFormatted: formatSecondsToHHMMSS(allocatedNuvSec),
@@ -364,6 +445,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
         operadorEmail: op.email,
         usuario: op.usuario,
         produto: prodName,
+        supervisor: op.supervisor || 'Não Informado',
         qtdNuvidio: nuvData.count,
         tempoNuvidioSec: nuvData.totalSeconds,
         tempoNuvidioFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
