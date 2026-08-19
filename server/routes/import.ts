@@ -443,8 +443,31 @@ async function parseFileRows(
   baseType?: 'operadores' | 'pausas' | 'nuvidio'
 ): Promise<{ headers: string[]; rows: any[] }> {
   let rawMatrix: string[][] = [];
+  const textContent = fileBuffer.toString('utf-8');
 
-  // Try parsing with XLSX
+  // 1. Check if textContent is JSON array
+  const trimmed = textContent.trim();
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const parsedJson = JSON.parse(trimmed);
+      const arr = Array.isArray(parsedJson)
+        ? parsedJson
+        : parsedJson.data || parsedJson.items || parsedJson.rows || [parsedJson];
+      if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
+        const headers = Object.keys(arr[0]);
+        const rows = arr.map((item) => {
+          const rowObj: Record<string, string> = {};
+          headers.forEach((h) => {
+            rowObj[h] = item[h] !== undefined && item[h] !== null ? String(item[h]).trim() : '';
+          });
+          return rowObj;
+        });
+        return { headers, rows };
+      }
+    } catch {}
+  }
+
+  // 2. Try parsing with XLSX (if binary/excel file)
   try {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true, raw: false });
     const sheetName = workbook.SheetNames[0];
@@ -454,13 +477,12 @@ async function parseFileRows(
       rawMatrix = jsonData.map(normalizeRowData);
     }
   } catch (xlsxErr) {
-    console.warn('XLSX parse error, falling back to PapaParse:', xlsxErr);
+    // console.warn('XLSX parse error, falling back to PapaParse:', xlsxErr);
   }
 
-  // Fallback to PapaParse if XLSX produced nothing
+  // 3. Fallback to PapaParse for CSV, TSV (tab-separated from Excel/SSMS), or semicolon delimited
   if (rawMatrix.length === 0) {
     try {
-      const textContent = fileBuffer.toString('utf-8');
       const parsed = Papa.parse(textContent, { header: false, skipEmptyLines: true });
       rawMatrix = (parsed.data as any[][]).map(normalizeRowData);
     } catch (csvErr) {
@@ -731,6 +753,7 @@ router.get('/template/:tipo_base', (req: Request, res: Response) => {
 router.post('/preview', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const file = req.file;
+    const rawText = req.body.raw_text as string | undefined;
     const baseType = req.body.tipo_base as 'operadores' | 'pausas' | 'nuvidio';
     let manualMappings: Record<string, string> | undefined;
 
@@ -744,18 +767,29 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
       }
     }
 
-    if (!file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    let fileBuffer: Buffer | null = null;
+    let fileName = 'arquivo.xlsx';
+
+    if (file) {
+      fileBuffer = file.buffer;
+      fileName = file.originalname;
+    } else if (rawText && typeof rawText === 'string' && rawText.trim().length > 0) {
+      fileBuffer = Buffer.from(rawText.trim(), 'utf-8');
+      fileName = 'texto_colado.tsv';
+    }
+
+    if (!fileBuffer) {
+      return res.status(400).json({ error: 'Nenhum arquivo ou texto enviado.' });
     }
 
     if (!baseType || !REQUIRED_FIELDS[baseType]) {
       return res.status(400).json({ error: 'Tipo de base inválido.' });
     }
 
-    const { headers, rows } = await parseFileRows(file.buffer, file.originalname, baseType);
+    const { headers, rows } = await parseFileRows(fileBuffer, fileName, baseType);
 
     if (headers.length === 0) {
-      return res.status(400).json({ error: 'O arquivo enviado está vazio ou não possui colunas legíveis.' });
+      return res.status(400).json({ error: 'O conteúdo enviado está vazio ou não possui colunas legíveis.' });
     }
 
     const validation = findColumnMappings(headers, baseType, manualMappings);
@@ -771,7 +805,7 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
     return res.json({
       valid: validation.valid,
       tipoBase: baseType,
-      fileName: file.originalname,
+      fileName,
       totalRows: rows.length,
       columnsFound: validation.columnsFound,
       missingColumns: validation.missingLabels,
@@ -785,7 +819,7 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
     });
   } catch (error: any) {
     console.error('Preview error:', error);
-    return res.status(500).json({ error: `Erro ao analisar arquivo: ${error.message || error}` });
+    return res.status(500).json({ error: `Erro ao analisar dados: ${error.message || error}` });
   }
 });
 
@@ -795,6 +829,7 @@ router.post('/preview', upload.single('file'), async (req: Request, res: Respons
 router.post('/process', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const file = req.file;
+    const rawText = req.body.raw_text as string | undefined;
     const baseType = req.body.tipo_base as 'operadores' | 'pausas' | 'nuvidio';
     const mode = ((req.body.modo || req.body.mode || 'substituir') as 'substituir' | 'adicionar');
     const modo = mode;
@@ -810,15 +845,26 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
       }
     }
 
-    if (!file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    let fileBuffer: Buffer | null = null;
+    let fileName = 'arquivo.xlsx';
+
+    if (file) {
+      fileBuffer = file.buffer;
+      fileName = file.originalname;
+    } else if (rawText && typeof rawText === 'string' && rawText.trim().length > 0) {
+      fileBuffer = Buffer.from(rawText.trim(), 'utf-8');
+      fileName = 'texto_colado.tsv';
+    }
+
+    if (!fileBuffer) {
+      return res.status(400).json({ error: 'Nenhum arquivo ou texto enviado.' });
     }
 
     if (!baseType || !REQUIRED_FIELDS[baseType]) {
       return res.status(400).json({ error: 'Tipo de base inválido.' });
     }
 
-    const { headers, rows } = await parseFileRows(file.buffer, file.originalname, baseType);
+    const { headers, rows } = await parseFileRows(fileBuffer, fileName, baseType);
     const validation = findColumnMappings(headers, baseType, manualMappings);
 
     if (!validation.valid) {

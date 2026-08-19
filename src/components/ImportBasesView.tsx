@@ -10,10 +10,12 @@ import {
   PhoneCall,
   RefreshCw,
   Check,
-  X,
   Download,
   Sliders,
   Zap,
+  ClipboardPaste,
+  FileText,
+  Trash2,
 } from 'lucide-react';
 
 interface ImportBasesViewProps {
@@ -24,7 +26,9 @@ interface ImportBasesViewProps {
 type BaseType = 'operadores' | 'pausas' | 'nuvidio';
 
 interface BaseUploadState {
+  inputMethod: 'file' | 'text';
   file: File | null;
+  pastedText: string;
   preview: PreviewData | null;
   loadingPreview: boolean;
   error: string | null;
@@ -37,9 +41,36 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
   onNavigateToApi,
 }) => {
   const [bases, setBases] = useState<Record<BaseType, BaseUploadState>>({
-    operadores: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
-    pausas: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
-    nuvidio: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
+    operadores: {
+      inputMethod: 'file',
+      file: null,
+      pastedText: '',
+      preview: null,
+      loadingPreview: false,
+      error: null,
+      mode: 'substituir',
+      manualMappings: {},
+    },
+    pausas: {
+      inputMethod: 'file',
+      file: null,
+      pastedText: '',
+      preview: null,
+      loadingPreview: false,
+      error: null,
+      mode: 'substituir',
+      manualMappings: {},
+    },
+    nuvidio: {
+      inputMethod: 'file',
+      file: null,
+      pastedText: '',
+      preview: null,
+      loadingPreview: false,
+      error: null,
+      mode: 'substituir',
+      manualMappings: {},
+    },
   });
 
   const [processingBase, setProcessingBase] = useState<BaseType | null>(null);
@@ -54,6 +85,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
       badgeColor: 'bg-blue-100/80 text-blue-800 border border-blue-200',
       requiredCols: ['Nome', 'INTERGRALL', 'E-mail (opcional)', 'Produto (opcional)'],
       description: 'Mapeia colaboradores e suas chaves de integração (INTERGRALL e E-mail).',
+      placeholderText: `Nome\tINTERGRALL\tE-mail\tProduto\tSupervisor\nTainá Martins\ttaina.martins\ttaina.martins@proativa.com.br\tPINE\tCarlos Souza\nMaria Silva\tmaria.silva\tmaria.silva@proativa.com.br\tCEDRO\tAna Paula`,
     },
     {
       type: 'pausas' as BaseType,
@@ -63,6 +95,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
       badgeColor: 'bg-amber-100/80 text-amber-800 border border-amber-200',
       requiredCols: ['Data', 'INTERGRALL', 'Pausa', 'Início', 'Fim'],
       description: 'Relatório do sistema de Pausas com horários de início, fim e produto.',
+      placeholderText: `Data\tINTERGRALL\tPausa\tInício\tFim\tTempo\tProduto\n11/08/2026\ttaina.martins\tLanche\t10:00:00\t10:15:00\t00:15:00\tPINE\n11/08/2026\tmaria.silva\tAlmoço\t12:00:00\t13:00:00\t01:00:00\tCEDRO`,
     },
     {
       type: 'nuvidio' as BaseType,
@@ -72,13 +105,26 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
       badgeColor: 'bg-emerald-100/80 text-emerald-800 border border-emerald-200',
       requiredCols: ['Email do atendente', 'Entrou na chamada', 'Saiu da chamada'],
       description: 'Extrato de atendimento Nuvidio com entrada e saída dos colaboradores.',
+      placeholderText: `Email do atendente\tAtendente entrou na chamada (Formatado)\tAtendente saiu da chamada (Formatado)\ntaina.martins@proativa.com.br\t11/08/2026 19:56\t11/08/2026 19:58\nmaria.silva@proativa.com.br\t11/08/2026 08:30\t11/08/2026 11:05`,
     },
   ];
 
-  const requestPreview = async (type: BaseType, selectedFile: File, mappings?: Record<string, string>) => {
+  const requestPreview = async (
+    type: BaseType,
+    source: { file?: File | null; text?: string },
+    mappings?: Record<string, string>
+  ) => {
     const formData = new FormData();
-    formData.append('file', selectedFile);
     formData.append('tipo_base', type);
+
+    if (source.file) {
+      formData.append('file', source.file);
+    } else if (source.text) {
+      formData.append('raw_text', source.text);
+    } else {
+      throw new Error('Nenhum dado fornecido.');
+    }
+
     if (mappings && Object.keys(mappings).length > 0) {
       formData.append('column_mappings', JSON.stringify(mappings));
     }
@@ -93,11 +139,11 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
     try {
       data = JSON.parse(responseText);
     } catch {
-      throw new Error(`Erro no servidor (${res.status}). Verifique se o arquivo é uma planilha válida.`);
+      throw new Error(`Erro no servidor (${res.status}). Verifique se os dados são válidos.`);
     }
 
     if (!res.ok) {
-      throw new Error(data.error || 'Erro ao validar colunas do arquivo.');
+      throw new Error(data.error || 'Erro ao validar colunas dos dados.');
     }
 
     return data as PreviewData & {
@@ -110,11 +156,18 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
 
     setBases((prev) => ({
       ...prev,
-      [type]: { ...prev[type], file: selectedFile, loadingPreview: true, error: null, manualMappings: {} },
+      [type]: {
+        ...prev[type],
+        file: selectedFile,
+        pastedText: '',
+        loadingPreview: true,
+        error: null,
+        manualMappings: {},
+      },
     }));
 
     try {
-      const data = await requestPreview(type, selectedFile);
+      const data = await requestPreview(type, { file: selectedFile });
 
       setBases((prev) => ({
         ...prev,
@@ -138,9 +191,71 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
     }
   };
 
+  const handleTextChange = async (type: BaseType, text: string) => {
+    setBases((prev) => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        pastedText: text,
+        file: null,
+      },
+    }));
+
+    if (!text.trim()) {
+      setBases((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          preview: null,
+          error: null,
+          loadingPreview: false,
+        },
+      }));
+      return;
+    }
+
+    setBases((prev) => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        loadingPreview: true,
+        error: null,
+      },
+    }));
+
+    try {
+      const data = await requestPreview(type, { text });
+
+      setBases((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          loadingPreview: false,
+          preview: data,
+          manualMappings: data.mappedColumns || {},
+          error: data.valid ? null : `Colunas faltando: ${(data.missingColumns || []).join(', ')}. Selecione abaixo.`,
+        },
+      }));
+    } catch (err: any) {
+      setBases((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          loadingPreview: false,
+          preview: null,
+          error: err.message || 'Falha ao analisar o texto colado.',
+        },
+      }));
+    }
+  };
+
   const handleMappingChange = async (type: BaseType, fieldKey: string, chosenHeader: string) => {
     const currentState = bases[type];
-    if (!currentState.file) return;
+    const source = currentState.inputMethod === 'text'
+      ? { text: currentState.pastedText }
+      : { file: currentState.file };
+
+    if (!source.file && !source.text) return;
 
     const newMappings = {
       ...currentState.manualMappings,
@@ -153,7 +268,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
     }));
 
     try {
-      const data = await requestPreview(type, currentState.file, newMappings);
+      const data = await requestPreview(type, source, newMappings);
       setBases((prev) => ({
         ...prev,
         [type]: {
@@ -177,15 +292,22 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
 
   const handleProcessBase = async (type: BaseType) => {
     const baseState = bases[type];
-    if (!baseState.file) return;
+    const hasData = baseState.inputMethod === 'text' ? !!baseState.pastedText.trim() : !!baseState.file;
+    if (!hasData) return;
 
     setProcessingBase(type);
     setStatusMessage(null);
 
     const formData = new FormData();
-    formData.append('file', baseState.file);
     formData.append('tipo_base', type);
     formData.append('modo', baseState.mode);
+
+    if (baseState.inputMethod === 'text') {
+      formData.append('raw_text', baseState.pastedText);
+    } else if (baseState.file) {
+      formData.append('file', baseState.file);
+    }
+
     if (Object.keys(baseState.manualMappings).length > 0) {
       formData.append('column_mappings', JSON.stringify(baseState.manualMappings));
     }
@@ -213,10 +335,18 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
         text: `${data.message} (${data.importedCount} registros importados, ${data.skippedCount} duplicados ignorados).`,
       });
 
-      // Reset base file state after success
+      // Reset base state after success
       setBases((prev) => ({
         ...prev,
-        [type]: { file: null, preview: null, loadingPreview: false, error: null, mode: 'substituir', manualMappings: {} },
+        [type]: {
+          ...prev[type],
+          file: null,
+          pastedText: '',
+          preview: null,
+          loadingPreview: false,
+          error: null,
+          manualMappings: {},
+        },
       }));
 
       onImportSuccess();
@@ -230,6 +360,17 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
     }
   };
 
+  const handleSetInputMethod = (type: BaseType, method: 'file' | 'text') => {
+    setBases((prev) => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        inputMethod: method,
+        error: null,
+      },
+    }));
+  };
+
   return (
     <div className="space-y-6">
       {/* Intro Banner */}
@@ -240,7 +381,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
             Importação e Validação de Bases
           </h2>
           <p className="text-xs text-blue-200 mt-1 max-w-3xl">
-            Suba arquivos .xlsx, .xls ou .csv. O sistema reconhece os cabeçalhos automaticamente e permite remapear colunas caso necessário.
+            Suba arquivos .xlsx, .xls, .csv ou <strong className="text-white">cole o texto copiado diretamente (Ctrl+V)</strong> do Excel, SSMS, DBeaver ou Bloco de Notas.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
@@ -256,46 +397,50 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
           )}
           <div className="text-xs bg-blue-800/80 border border-blue-700/80 px-3 py-2 rounded-lg text-blue-200 flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            Suporta Excel e CSV
+            Planilha ou Texto Colado
           </div>
         </div>
       </div>
 
-      {/* Status Toast */}
+      {/* Global Status Banner */}
       {statusMessage && (
         <div
-          className={`p-4 rounded-xl border flex items-center gap-3 text-sm font-medium ${
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm animate-in fade-in duration-200 ${
             statusMessage.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-rose-50 border-rose-300 text-rose-900'
           }`}
         >
-          {statusMessage.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          )}
-          <span className="flex-1">{statusMessage.text}</span>
+          <div className="flex items-center gap-2.5">
+            {statusMessage.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <span className="font-semibold">{statusMessage.text}</span>
+          </div>
           <button
+            type="button"
             onClick={() => setStatusMessage(null)}
-            className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+            className="text-xs font-bold px-2 py-1 rounded-md bg-white/60 hover:bg-white transition-colors cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            Fechar
           </button>
         </div>
       )}
 
-      {/* 3 Upload Areas */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 3 Base Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {baseConfigs.map((config) => {
           const Icon = config.icon;
           const state = bases[config.type];
           const isProcessing = processingBase === config.type;
+          const hasInput = state.inputMethod === 'text' ? !!state.pastedText.trim() : !!state.file;
 
           return (
             <div
               key={config.type}
-              className={`bg-white rounded-xl border-2 p-5 shadow-xs flex flex-col justify-between ${
+              className={`bg-white rounded-xl border p-5 shadow-xs flex flex-col justify-between transition-all ${
                 state.preview?.valid
                   ? 'border-emerald-300 bg-emerald-50/10'
                   : state.error
@@ -357,48 +502,112 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
                   </div>
                 </div>
 
-                {/* Dropzone File Selector */}
-                <div className="mb-4">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                {/* Input Method Switcher: Arquivo Planilha vs Colar Texto */}
+                <div className="flex items-center bg-slate-100 p-1 rounded-lg mb-3 border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleSetInputMethod(config.type, 'file')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      state.inputMethod === 'file'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
                     Selecionar Planilha
-                  </label>
-                  <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-4 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-white">
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls,.csv"
-                      onChange={(e) =>
-                        handleFileSelect(config.type, e.target.files?.[0] || null)
-                      }
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <FileSpreadsheet className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                    {state.file ? (
-                      <div>
-                        <p className="text-xs font-bold text-slate-900 truncate px-2">
-                          {state.file.name}
-                        </p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {(state.file.size / 1024).toFixed(1)} KB • Clique para alterar
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-xs font-semibold text-blue-600">
-                          Clique para selecionar arquivo
-                        </p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Arquivos .xlsx, .xls ou .csv
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetInputMethod(config.type, 'text')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      state.inputMethod === 'text'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ClipboardPaste className="w-3.5 h-3.5 text-blue-600" />
+                    Colar Texto
+                  </button>
                 </div>
+
+                {/* METHOD 1: File Dropzone */}
+                {state.inputMethod === 'file' && (
+                  <div className="mb-4">
+                    <div className="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-4 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-white">
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={(e) =>
+                          handleFileSelect(config.type, e.target.files?.[0] || null)
+                        }
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <FileSpreadsheet className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      {state.file ? (
+                        <div>
+                          <p className="text-xs font-bold text-slate-900 truncate px-2">
+                            {state.file.name}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {(state.file.size / 1024).toFixed(1)} KB • Clique para alterar
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs font-semibold text-blue-600">
+                            Clique para selecionar arquivo
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Arquivos .xlsx, .xls ou .csv
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* METHOD 2: Paste Text Area */}
+                {state.inputMethod === 'text' && (
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-slate-500" />
+                        Cole os dados aqui (Ctrl+V):
+                      </label>
+                      {state.pastedText && (
+                        <button
+                          type="button"
+                          onClick={() => handleTextChange(config.type, '')}
+                          className="text-[11px] font-medium text-rose-600 hover:text-rose-800 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      rows={5}
+                      value={state.pastedText}
+                      onChange={(e) => handleTextChange(config.type, e.target.value)}
+                      placeholder={`Cole aqui os dados copiados do Excel ou SQL (com cabeçalhos):\n${config.placeholderText}`}
+                      className="w-full text-xs font-mono p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white placeholder:text-slate-400"
+                    />
+                    <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500 px-1">
+                      <span>Suporta TSV (Excel/SQL), CSV e JSON</span>
+                      {state.pastedText && (
+                        <span className="font-semibold text-slate-700">
+                          {state.pastedText.split('\n').filter(Boolean).length} linhas
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Loading Preview Spinner */}
                 {state.loadingPreview && (
                   <div className="flex items-center justify-center gap-2 py-3 text-xs text-slate-500">
                     <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                    Analisando estrutura da planilha...
+                    Analisando dados...
                   </div>
                 )}
 
@@ -416,7 +625,7 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
                         {state.preview.valid ? (
                           <>
                             <Check className="w-4 h-4 text-emerald-600" />
-                            <span>Planilha pronta ({state.preview.totalRows} linhas)</span>
+                            <span>Dados prontos ({state.preview.totalRows} registros detectados)</span>
                           </>
                         ) : (
                           <>
@@ -531,9 +740,9 @@ export const ImportBasesView: React.FC<ImportBasesViewProps> = ({
               {/* Action Process Button */}
               <button
                 onClick={() => handleProcessBase(config.type)}
-                disabled={!state.file || !state.preview?.valid || isProcessing}
+                disabled={!hasInput || !state.preview?.valid || isProcessing}
                 className={`w-full py-2.5 px-4 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                  !state.file || !state.preview?.valid || isProcessing
+                  !hasInput || !state.preview?.valid || isProcessing
                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                     : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
                 }`}
