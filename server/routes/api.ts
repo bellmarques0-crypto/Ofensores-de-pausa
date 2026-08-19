@@ -126,10 +126,9 @@ router.get('/filters/options', (req: Request, res: Response) => {
 
     const usuarios = Array.from(
       new Set(
-        [
-          ...db.operadores.map((o) => o.usuario),
-          ...db.pausas.map((p) => p.usuario),
-        ].filter((u) => Boolean(u))
+        db.operadores
+          .map((o) => o.usuario)
+          .filter((u) => Boolean(u))
       )
     ).sort();
 

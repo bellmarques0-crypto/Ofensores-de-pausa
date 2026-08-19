@@ -225,64 +225,14 @@ export function findOperatorForIdentifier(
 }
 
 /**
- * Builds unified operators list (including synthetic ones from pausas/nuvidio if not present)
+ * Builds operators list strictly from registered operators in the database
  */
 export function getUnifiedOperatorsIndex() {
   const db = getDb();
   const baseOps = [...db.operadores];
-  const initialIndex = new OperatorLookupIndex(baseOps);
+  const fullIndex = new OperatorLookupIndex(baseOps);
 
-  const synthMap = new Map<string, Operador>();
-
-  // Discover operators from Pausas
-  for (const p of db.pausas) {
-    if (!p.usuario) continue;
-    const found = initialIndex.find(p.usuario);
-    if (!found) {
-      const u = normalizeUsername(p.usuario);
-      if (u && !synthMap.has(u)) {
-        synthMap.set(u, {
-          id: `op-synth-${u}`,
-          nome: p.usuario.toUpperCase(),
-          email: `${u}@proativacontactcenter.com.br`,
-          usuario: u,
-          produto: p.produto && p.produto !== 'Sem Produto' ? p.produto : undefined,
-          supervisor: 'Não Informado',
-          created_at: p.created_at || new Date().toISOString(),
-          updated_at: p.created_at || new Date().toISOString(),
-          fingerprint: `synth||${u}`,
-        });
-      }
-    }
-  }
-
-  // Discover operators from Nuvidio
-  for (const n of db.nuvidio) {
-    if (!n.email_atendente) continue;
-    const found = initialIndex.find(n.email_atendente);
-    if (!found) {
-      const raw = n.email_atendente.toLowerCase();
-      const prefix = raw.includes('@') ? raw.split('@')[0] : raw;
-      if (prefix && !synthMap.has(prefix) && !synthMap.has(raw)) {
-        synthMap.set(prefix, {
-          id: `op-synth-${prefix}`,
-          nome: prefix.replace(/\./g, ' ').toUpperCase(),
-          email: raw.includes('@') ? raw : `${raw}@proativacontactcenter.com.br`,
-          usuario: prefix,
-          produto: undefined,
-          supervisor: 'Não Informado',
-          created_at: n.created_at || new Date().toISOString(),
-          updated_at: n.created_at || new Date().toISOString(),
-          fingerprint: `synth||${raw}`,
-        });
-      }
-    }
-  }
-
-  const allOperators = [...baseOps, ...Array.from(synthMap.values())];
-  const fullIndex = new OperatorLookupIndex(allOperators);
-
-  return { allOperators, fullIndex };
+  return { allOperators: baseOps, fullIndex };
 }
 
 /**
@@ -397,7 +347,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
     }
   }
 
-  // 2. Group Pausas by Operador ID and Product in O(P)
+  // 2. Group Pausas by Operador ID and Product in O(P) (prioritizing product from Pausas)
   interface PauseProdAgg {
     produto: string;
     count: number;
@@ -409,10 +359,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
     if (!p.usuario) continue;
     const matchedOp = opIndex.find(p.usuario);
     if (matchedOp && validOpIds.has(matchedOp.id)) {
-      let prodName = (p.produto || '').trim();
-      if (!prodName || prodName.toLowerCase() === 'sem produto') {
-        prodName = (matchedOp.produto || '').trim() || 'Sem Produto';
-      }
+      let prodName = (p.produto || '').trim() || 'Sem Produto';
       let opProdMap = pausasByOpId.get(matchedOp.id);
       if (!opProdMap) {
         opProdMap = new Map<string, PauseProdAgg>();
@@ -425,10 +372,10 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
     }
   }
 
-  // 3. Precompute best known product for operators from allDbPausas if needed
+  // 3. Precompute best known product for operators from allDbPausas
   const bestProdByOpId = new Map<string, string>();
   for (const p of allDbPausas) {
-    if (!p.usuario || !p.produto || p.produto === 'Sem Produto') continue;
+    if (!p.usuario || !p.produto || p.produto.trim().toLowerCase() === 'sem produto') continue;
     const matchedOp = opIndex.find(p.usuario);
     if (matchedOp && !bestProdByOpId.has(matchedOp.id)) {
       bestProdByOpId.set(matchedOp.id, p.produto.trim());
@@ -451,15 +398,13 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
       continue;
     }
 
-    // Determine primary product
+    // Determine primary product from Base de Pausas
     let primaryProd = '';
-    if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
-      primaryProd = op.produto.trim();
-    } else if (prodGroups.length > 0) {
-      // Pick the product with the highest pause time or count (preferring named products over 'Sem Produto')
+    if (prodGroups.length > 0) {
+      // Pick the product from Pausas with the highest pause time or count (preferring named products over 'Sem Produto')
       const sortedProds = [...prodGroups].sort((a, b) => {
-        const isASem = a.produto.toLowerCase() === 'sem produto' || a.produto.toLowerCase().includes('nao mapeado');
-        const isBSem = b.produto.toLowerCase() === 'sem produto' || b.produto.toLowerCase().includes('nao mapeado');
+        const isASem = !a.produto || a.produto.toLowerCase() === 'sem produto' || a.produto.toLowerCase().includes('nao mapeado');
+        const isBSem = !b.produto || b.produto.toLowerCase() === 'sem produto' || b.produto.toLowerCase().includes('nao mapeado');
         if (!isASem && isBSem) return -1;
         if (isASem && !isBSem) return 1;
         return b.totalSeconds - a.totalSeconds || b.count - a.count;
@@ -467,6 +412,8 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
       primaryProd = sortedProds[0].produto;
     } else if (bestProdByOpId.get(op.id)) {
       primaryProd = bestProdByOpId.get(op.id)!;
+    } else if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
+      primaryProd = op.produto.trim();
     } else if (filter.produto) {
       primaryProd = filter.produto;
     } else {
@@ -513,11 +460,21 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
 }
 
 /**
- * Generates Report 2: Por Produto (Grouped cleanly by Product)
+ * Generates Report 2: Por Produto (Grouped cleanly by Product from Pausas)
  */
 export function generateProductReport(filter: ReportFilter): ProductReportRow[] {
-  const { pausas, nuvidio, operadores, opIndex } = filterRecords(filter);
+  const { pausas, nuvidio, operadores, allDbPausas, opIndex } = filterRecords(filter);
   const validOpIds = new Set(operadores.map((o) => o.id));
+
+  // Precompute best known product for operators from allDbPausas
+  const bestProdByOpId = new Map<string, string>();
+  for (const p of allDbPausas) {
+    if (!p.usuario || !p.produto || p.produto.trim().toLowerCase() === 'sem produto') continue;
+    const matchedOp = opIndex.find(p.usuario);
+    if (matchedOp && !bestProdByOpId.has(matchedOp.id)) {
+      bestProdByOpId.set(matchedOp.id, p.produto.trim());
+    }
+  }
 
   const productMap = new Map<
     string,
@@ -546,31 +503,58 @@ export function generateProductReport(filter: ReportFilter): ProductReportRow[] 
     return existing;
   };
 
-  // 1. Group Pausas by Product
+  // Group pausas by operator to know their main active product
+  const pausasByOpId = new Map<string, Map<string, number>>();
+
+  // 1. Group Pausas by Product (directly from base de pausas)
   for (const p of pausas) {
-    const pProd = getOrCreateProd(p.produto);
-    pProd.qtdPausas += 1;
-    pProd.tempoPausasSec += p.tempo_segundos;
+    if (!p.usuario) continue;
+    const matchedOp = opIndex.find(p.usuario);
+    if (matchedOp && validOpIds.has(matchedOp.id)) {
+      const rawProd = (p.produto || '').trim();
+      const prodName = rawProd && rawProd.toLowerCase() !== 'sem produto'
+        ? fixEncoding(rawProd)
+        : (bestProdByOpId.get(matchedOp.id) || (matchedOp.produto ? fixEncoding(matchedOp.produto) : '') || 'Sem Produto');
+      
+      const pProd = getOrCreateProd(prodName);
+      pProd.qtdPausas += 1;
+      pProd.tempoPausasSec += p.tempo_segundos;
+
+      let opMap = pausasByOpId.get(matchedOp.id);
+      if (!opMap) {
+        opMap = new Map<string, number>();
+        pausasByOpId.set(matchedOp.id, opMap);
+      }
+      opMap.set(prodName, (opMap.get(prodName) || 0) + p.tempo_segundos);
+    }
   }
 
-  // 2. Pre-calculate main product for each operator
+  // 2. Pre-calculate main product for each operator from base de pausas
   const opMainProduct = new Map<string, string>();
   for (const op of operadores) {
-    if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
+    const opProds = pausasByOpId.get(op.id);
+    if (opProds && opProds.size > 0) {
+      const sorted = Array.from(opProds.entries()).sort((a, b) => {
+        const isASem = !a[0] || a[0].toLowerCase() === 'sem produto';
+        const isBSem = !b[0] || b[0].toLowerCase() === 'sem produto';
+        if (!isASem && isBSem) return -1;
+        if (isASem && !isBSem) return 1;
+        return b[1] - a[1];
+      });
+      opMainProduct.set(op.id, fixEncoding(sorted[0][0]));
+    } else if (bestProdByOpId.get(op.id)) {
+      opMainProduct.set(op.id, fixEncoding(bestProdByOpId.get(op.id)!));
+    } else if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
       opMainProduct.set(op.id, fixEncoding(op.produto.trim()));
     }
   }
 
-  // 3. Allocate Nuvidio to Operator's product
+  // 3. Allocate Nuvidio to Operator's product from base de pausas
   for (const n of nuvidio) {
     const matchedOp = opIndex.find(n.email_atendente);
     if (matchedOp && validOpIds.has(matchedOp.id)) {
       const prodName = opMainProduct.get(matchedOp.id) || (matchedOp.produto ? fixEncoding(matchedOp.produto) : '') || 'Sem Produto';
       const pProd = getOrCreateProd(prodName);
-      pProd.qtdNuvidio += 1;
-      pProd.tempoNuvidioSec += n.tempo_segundos;
-    } else {
-      const pProd = getOrCreateProd('Sem Produto');
       pProd.qtdNuvidio += 1;
       pProd.tempoNuvidioSec += n.tempo_segundos;
     }
@@ -619,37 +603,21 @@ export function generateProductReport(filter: ReportFilter): ProductReportRow[] 
  * Generates Dashboard Summary Cards Data (Instant Single-Pass)
  */
 export function generateDashboardSummary(filter: ReportFilter): DashboardSummary {
-  const { operadores, pausas, nuvidio } = filterRecords(filter);
   const opReport = generateOperatorReport(filter);
 
-  // Count unique operators that appear in the report or in the filtered list
-  const activeOperatorIds = new Set<string>();
-  opReport.forEach((r) => activeOperatorIds.add(r.operadorId));
-  const totalOperadores = activeOperatorIds.size > 0 ? activeOperatorIds.size : operadores.length;
+  // Count unique operators that appear in the report
+  const totalOperadores = opReport.length;
 
   let totalNuvidios = 0;
   let tempoTotalNuvidioSec = 0;
+  let totalPausas = 0;
+  let tempoTotalPausasSec = 0;
+
   for (const row of opReport) {
     totalNuvidios += row.qtdNuvidio;
     tempoTotalNuvidioSec += row.tempoNuvidioSec;
-  }
-
-  // If no filters are blocking raw nuvidio and opReport is 0, show raw totals
-  if (totalNuvidios === 0 && nuvidio.length > 0) {
-    totalNuvidios = nuvidio.length;
-    tempoTotalNuvidioSec = nuvidio.reduce((acc, n) => acc + n.tempo_segundos, 0);
-  }
-
-  let totalPausas = 0;
-  let tempoTotalPausasSec = 0;
-  for (const row of opReport) {
     totalPausas += row.qtdPausas;
     tempoTotalPausasSec += row.tempoPausasSec;
-  }
-
-  if (totalPausas === 0 && pausas.length > 0) {
-    totalPausas = pausas.length;
-    tempoTotalPausasSec = pausas.reduce((acc, p) => acc + p.tempo_segundos, 0);
   }
 
   const diferencaTotalSec = tempoTotalNuvidioSec - tempoTotalPausasSec;
