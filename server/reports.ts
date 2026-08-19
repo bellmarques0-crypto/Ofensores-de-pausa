@@ -44,7 +44,7 @@ export interface ProductReportRow {
   tempoPausasFormatted: string;
   diferencaSec: number;
   diferencaFormatted: string;
-  diferencaPercFormatted: string; // e.g. "14.50%" or "N/A"
+  diferencaPercFormatted: string; // e.g. "+14.50%" or "N/A"
   diferencaPercValue: number | null;
 }
 
@@ -74,34 +74,119 @@ function toIsoDate(dateStr?: string): string | null {
 }
 
 /**
- * Flexible attendant identifier matching:
- * Matches Nuvidio or Pausas attendant string against Operador email, usuario (INTERGRALL), name, or email prefix.
+ * High-Performance Indexed Lookup Engine for Operators
  */
-export function findOperatorForIdentifier(
-  identifier: string,
+export class OperatorLookupIndex {
+  private byEmail = new Map<string, Operador>();
+  private byEmailPrefix = new Map<string, Operador>();
+  private byUser = new Map<string, Operador>();
+  private byUserNumeric = new Map<string, Operador>();
+  private byCleanName = new Map<string, Operador>();
+  private allOps: Operador[];
+  private memo = new Map<string, Operador | null>();
+
+  constructor(operadores: Operador[]) {
+    this.allOps = operadores;
+    for (const op of operadores) {
+      if (op.email) {
+        const cleanE = normalizeEmail(op.email);
+        if (cleanE) {
+          this.byEmail.set(cleanE, op);
+          const prefix = cleanE.split('@')[0];
+          if (prefix && !this.byEmailPrefix.has(prefix)) {
+            this.byEmailPrefix.set(prefix, op);
+          }
+        }
+      }
+      if (op.usuario) {
+        const cleanU = normalizeUsername(op.usuario);
+        if (cleanU) {
+          this.byUser.set(cleanU, op);
+          const digits = cleanU.replace(/\D/g, '');
+          if (digits && digits.length >= 2 && !this.byUserNumeric.has(digits)) {
+            this.byUserNumeric.set(digits, op);
+          }
+        }
+      }
+      if (op.nome) {
+        const cleanN = cleanSearchString(op.nome);
+        if (cleanN && !this.byCleanName.has(cleanN)) {
+          this.byCleanName.set(cleanN, op);
+        }
+      }
+    }
+  }
+
+  public find(identifier?: string): Operador | null {
+    if (!identifier) return null;
+    const raw = String(identifier).trim();
+    if (!raw) return null;
+
+    if (this.memo.has(raw)) {
+      return this.memo.get(raw) || null;
+    }
+
+    const cleanE = normalizeEmail(raw);
+    if (cleanE && this.byEmail.has(cleanE)) {
+      const res = this.byEmail.get(cleanE)!;
+      this.memo.set(raw, res);
+      return res;
+    }
+
+    const cleanU = normalizeUsername(raw);
+    if (cleanU && this.byUser.has(cleanU)) {
+      const res = this.byUser.get(cleanU)!;
+      this.memo.set(raw, res);
+      return res;
+    }
+
+    const rawPrefix = (cleanE ? cleanE.split('@')[0] : (raw.includes('@') ? raw.split('@')[0] : raw)).trim().toLowerCase();
+    if (rawPrefix) {
+      if (this.byUser.has(rawPrefix)) {
+        const res = this.byUser.get(rawPrefix)!;
+        this.memo.set(raw, res);
+        return res;
+      }
+      if (this.byEmailPrefix.has(rawPrefix)) {
+        const res = this.byEmailPrefix.get(rawPrefix)!;
+        this.memo.set(raw, res);
+        return res;
+      }
+    }
+
+    const cleanN = cleanSearchString(raw);
+    if (cleanN && this.byCleanName.has(cleanN)) {
+      const res = this.byCleanName.get(cleanN)!;
+      this.memo.set(raw, res);
+      return res;
+    }
+
+    // Numeric match
+    const digits = cleanU ? cleanU.replace(/\D/g, '') : raw.replace(/\D/g, '');
+    if (digits && digits.length >= 2 && this.byUserNumeric.has(digits)) {
+      const res = this.byUserNumeric.get(digits)!;
+      this.memo.set(raw, res);
+      return res;
+    }
+
+    // Fast fuzzy fallback
+    const matched = findOperatorForIdentifierSlow(raw, this.allOps);
+    this.memo.set(raw, matched);
+    return matched;
+  }
+}
+
+/**
+ * Fallback fuzzy matcher (cached through OperatorLookupIndex)
+ */
+function findOperatorForIdentifierSlow(
+  rawId: string,
   operadores: Operador[]
 ): Operador | null {
-  if (!identifier) return null;
-
-  const rawId = String(identifier).trim();
-  if (!rawId) return null;
-
-  const cleanUser = normalizeUsername(rawId);
-  const cleanEmail = normalizeEmail(rawId);
-  const cleanTextId = cleanSearchString(rawId);
-
-  if (!cleanUser && !cleanEmail && !cleanTextId) return null;
-
-  const rawPrefix = rawId.includes('@') ? rawId.split('@')[0] : rawId;
-  const cleanPrefixText = cleanSearchString(rawPrefix);
-
+  const cleanPrefixText = cleanSearchString(rawId.includes('@') ? rawId.split('@')[0] : rawId);
   const STOP_WORDS = new Set(['com', 'br', 'de', 'da', 'dos', 'do', 'del', 'e', 'proativacontactcenter', 'gmail', 'hotmail', 'outlook']);
+  const idTokens = cleanPrefixText.split(' ').filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 
-  const idTokens = cleanPrefixText
-    .split(' ')
-    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
-
-  // 1. Pass 1: Direct or Numeric Suffix / Username / Email / Name match
   for (const op of operadores) {
     const opEmail = normalizeEmail(op.email);
     const opUser = normalizeUsername(op.usuario);
@@ -110,78 +195,93 @@ export function findOperatorForIdentifier(
     if (
       matchUserOrNumericSuffix(rawId, opUser) ||
       matchUserOrNumericSuffix(rawId, opEmail) ||
-      matchUserOrNumericSuffix(rawId, opName) ||
-      matchUserOrNumericSuffix(rawPrefix, opUser) ||
-      matchUserOrNumericSuffix(rawPrefix, opEmail) ||
-      matchUserOrNumericSuffix(rawPrefix, opName)
+      matchUserOrNumericSuffix(rawId, opName)
     ) {
       return op;
     }
   }
 
-  // 2. Pass 2: Cleaned String Exact Equality
-  for (const op of operadores) {
-    const opNameClean = cleanSearchString(op.nome);
-    const opEmailClean = cleanSearchString(op.email);
-    const opUserClean = cleanSearchString(op.usuario);
-    const opEmailPrefixClean = cleanSearchString((op.email || '').split('@')[0]);
-
-    if (
-      (cleanTextId && (cleanTextId === opNameClean || cleanTextId === opEmailClean || cleanTextId === opUserClean || cleanTextId === opEmailPrefixClean)) ||
-      (cleanPrefixText && (cleanPrefixText === opNameClean || cleanPrefixText === opEmailClean || cleanPrefixText === opUserClean || cleanPrefixText === opEmailPrefixClean))
-    ) {
-      return op;
-    }
-  }
-
-  // 3. Pass 3: Substring Containment (when length >= 3)
-  for (const op of operadores) {
-    const opNameClean = cleanSearchString(op.nome);
-    const opEmailClean = cleanSearchString(op.email);
-    const opEmailPrefixClean = cleanSearchString((op.email || '').split('@')[0]);
-
-    if (cleanPrefixText.length >= 3) {
-      if (
-        (opNameClean.length >= 3 && (opNameClean.includes(cleanPrefixText) || cleanPrefixText.includes(opNameClean))) ||
-        (opEmailPrefixClean.length >= 3 && (opEmailPrefixClean.includes(cleanPrefixText) || cleanPrefixText.includes(opEmailPrefixClean))) ||
-        (opEmailClean.length >= 3 && opEmailClean.includes(cleanPrefixText))
-      ) {
-        return op;
-      }
-    }
-  }
-
-  // 4. Pass 4: Token Overlap (Matching Name / Email Tokens)
+  // Token Overlap
   if (idTokens.length >= 2) {
     for (const op of operadores) {
       const opNameTokens = new Set(cleanSearchString(op.nome).split(' '));
       const opEmailTokens = new Set(cleanSearchString((op.email || '').split('@')[0]).split(' '));
-
-      const matchInName = idTokens.every((t) => opNameTokens.has(t));
-      const matchInEmail = idTokens.every((t) => opEmailTokens.has(t));
-
-      if (matchInName || matchInEmail) {
+      if (idTokens.every((t) => opNameTokens.has(t)) || idTokens.every((t) => opEmailTokens.has(t))) {
         return op;
       }
     }
   }
 
-  // 5. Pass 5: Unique First Name or Username match (if idTokens has 1 token and length >= 4)
-  if (idTokens.length === 1 && idTokens[0].length >= 4) {
-    const singleToken = idTokens[0];
-    const candidateOps = operadores.filter((op) => {
-      const opFirstName = cleanSearchString(op.nome).split(' ')[0];
-      const opUser = cleanSearchString(op.usuario);
-      const opEmailPrefix = cleanSearchString((op.email || '').split('@')[0]);
-      return opFirstName === singleToken || opUser === singleToken || opEmailPrefix === singleToken;
-    });
+  return null;
+}
 
-    if (candidateOps.length === 1) {
-      return candidateOps[0];
+export function findOperatorForIdentifier(
+  identifier: string,
+  operadores: Operador[]
+): Operador | null {
+  const idx = new OperatorLookupIndex(operadores);
+  return idx.find(identifier);
+}
+
+/**
+ * Builds unified operators list (including synthetic ones from pausas/nuvidio if not present)
+ */
+export function getUnifiedOperatorsIndex() {
+  const db = getDb();
+  const baseOps = [...db.operadores];
+  const initialIndex = new OperatorLookupIndex(baseOps);
+
+  const synthMap = new Map<string, Operador>();
+
+  // Discover operators from Pausas
+  for (const p of db.pausas) {
+    if (!p.usuario) continue;
+    const found = initialIndex.find(p.usuario);
+    if (!found) {
+      const u = normalizeUsername(p.usuario);
+      if (u && !synthMap.has(u)) {
+        synthMap.set(u, {
+          id: `op-synth-${u}`,
+          nome: p.usuario.toUpperCase(),
+          email: `${u}@proativacontactcenter.com.br`,
+          usuario: u,
+          produto: p.produto && p.produto !== 'Sem Produto' ? p.produto : undefined,
+          supervisor: 'Não Informado',
+          created_at: p.created_at || new Date().toISOString(),
+          updated_at: p.created_at || new Date().toISOString(),
+          fingerprint: `synth||${u}`,
+        });
+      }
     }
   }
 
-  return null;
+  // Discover operators from Nuvidio
+  for (const n of db.nuvidio) {
+    if (!n.email_atendente) continue;
+    const found = initialIndex.find(n.email_atendente);
+    if (!found) {
+      const raw = n.email_atendente.toLowerCase();
+      const prefix = raw.includes('@') ? raw.split('@')[0] : raw;
+      if (prefix && !synthMap.has(prefix) && !synthMap.has(raw)) {
+        synthMap.set(prefix, {
+          id: `op-synth-${prefix}`,
+          nome: prefix.replace(/\./g, ' ').toUpperCase(),
+          email: raw.includes('@') ? raw : `${raw}@proativacontactcenter.com.br`,
+          usuario: prefix,
+          produto: undefined,
+          supervisor: 'Não Informado',
+          created_at: n.created_at || new Date().toISOString(),
+          updated_at: n.created_at || new Date().toISOString(),
+          fingerprint: `synth||${raw}`,
+        });
+      }
+    }
+  }
+
+  const allOperators = [...baseOps, ...Array.from(synthMap.values())];
+  const fullIndex = new OperatorLookupIndex(allOperators);
+
+  return { allOperators, fullIndex };
 }
 
 /**
@@ -189,6 +289,7 @@ export function findOperatorForIdentifier(
  */
 export function filterRecords(dbFilter: ReportFilter) {
   const db = getDb();
+  const { allOperators, fullIndex } = getUnifiedOperatorsIndex();
 
   const isoStart = toIsoDate(dbFilter.dataInicio);
   const isoEnd = toIsoDate(dbFilter.dataFim);
@@ -200,7 +301,7 @@ export function filterRecords(dbFilter: ReportFilter) {
   const supSearch = (dbFilter.supervisor || '').trim().toLowerCase();
 
   // Filter Operadores
-  const filteredOperadores = db.operadores.filter((op) => {
+  const filteredOperadores = allOperators.filter((op) => {
     if (userSearch) {
       const normOpUser = normalizeUsername(op.usuario);
       const matchNorm = normUserSearch && matchUserOrNumericSuffix(normOpUser, normUserSearch);
@@ -220,9 +321,10 @@ export function filterRecords(dbFilter: ReportFilter) {
 
   // Filter Pausas
   const filteredPausas = db.pausas.filter((p) => {
-    const pDateIso = parseDateToISO(p.data) || parseDateToISO(p.data_iso) || parseDateToISO(p.inicio);
+    const pDateIso = p.data_iso || parseDateToISO(p.data) || parseDateToISO(p.inicio);
     if (isoStart && (!pDateIso || pDateIso < isoStart)) return false;
     if (isoEnd && (!pDateIso || pDateIso > isoEnd)) return false;
+
     if (prodSearch) {
       const pProd = (p.produto || '').trim().toLowerCase();
       const normProdSearch = prodSearch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -237,18 +339,20 @@ export function filterRecords(dbFilter: ReportFilter) {
 
       if (!matchExact && !matchContains && !matchBase) return false;
     }
+
     if (userSearch) {
       const normPausUser = normalizeUsername(p.usuario);
       const matchNorm = normUserSearch && matchUserOrNumericSuffix(normPausUser, normUserSearch);
       const matchInc = p.usuario.toLowerCase().includes(userSearch);
       if (!matchNorm && !matchInc) return false;
     }
+
     return true;
   });
 
   // Filter Nuvidio
   const filteredNuvidio = db.nuvidio.filter((n) => {
-    const nDateIso = parseDateToISO(n.data_iso) || parseDateToISO(n.entrada);
+    const nDateIso = n.data_iso || parseDateToISO(n.entrada) || parseDateToISO(n.saida);
     if (isoStart && (!nDateIso || nDateIso < isoStart)) return false;
     if (isoEnd && (!nDateIso || nDateIso > isoEnd)) return false;
     return true;
@@ -258,18 +362,24 @@ export function filterRecords(dbFilter: ReportFilter) {
     operadores: filteredOperadores,
     pausas: filteredPausas,
     nuvidio: filteredNuvidio,
-    allDbOperadores: db.operadores,
+    allDbOperadores: allOperators,
     allDbPausas: db.pausas,
+    opIndex: fullIndex,
   };
 }
 
 /**
- * Generates Report 1: Por Operador
+ * Generates Report 1: Por Operador (Ultra-fast single-pass calculation)
  */
 export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[] {
-  const { operadores, pausas, nuvidio, allDbPausas } = filterRecords(filter);
+  const { operadores, pausas, nuvidio, allDbPausas, opIndex } = filterRecords(filter);
 
-  // Group Nuvidio by matched Operador ID (only for operators in db.operadores)
+  // Set of valid operator IDs matching the filter
+  const validOpIds = new Set(operadores.map((o) => o.id));
+  const opMap = new Map<string, Operador>();
+  operadores.forEach((o) => opMap.set(o.id, o));
+
+  // 1. Group Nuvidio by Operador ID in O(N)
   interface NuvidioAgg {
     count: number;
     totalSeconds: number;
@@ -277,8 +387,8 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
   const nuvidioByOpId = new Map<string, NuvidioAgg>();
 
   for (const n of nuvidio) {
-    const matchedOp = findOperatorForIdentifier(n.email_atendente, operadores);
-    if (matchedOp) {
+    const matchedOp = opIndex.find(n.email_atendente);
+    if (matchedOp && validOpIds.has(matchedOp.id)) {
       const existing = nuvidioByOpId.get(matchedOp.id) || { count: 0, totalSeconds: 0 };
       existing.count += 1;
       existing.totalSeconds += n.tempo_segundos;
@@ -286,158 +396,85 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
     }
   }
 
-  // Helper function to match pausas to an operator
-  function getPausasForOp(op: Operador, pausaList: Pausa[]): Pausa[] {
-    return pausaList.filter((p) => {
-      if (!p.usuario) return false;
-      const matched = findOperatorForIdentifier(p.usuario, [op]);
-      return matched?.id === op.id;
-    });
+  // 2. Group Pausas by Operador ID and Product in O(P)
+  interface PauseProdAgg {
+    produto: string;
+    count: number;
+    totalSeconds: number;
+  }
+  const pausasByOpId = new Map<string, Map<string, PauseProdAgg>>();
+
+  for (const p of pausas) {
+    if (!p.usuario) continue;
+    const matchedOp = opIndex.find(p.usuario);
+    if (matchedOp && validOpIds.has(matchedOp.id)) {
+      let prodName = (p.produto || '').trim();
+      if (!prodName || prodName.toLowerCase() === 'sem produto') {
+        prodName = (matchedOp.produto || '').trim() || 'Sem Produto';
+      }
+      let opProdMap = pausasByOpId.get(matchedOp.id);
+      if (!opProdMap) {
+        opProdMap = new Map<string, PauseProdAgg>();
+        pausasByOpId.set(matchedOp.id, opProdMap);
+      }
+      const existing = opProdMap.get(prodName) || { produto: prodName, count: 0, totalSeconds: 0 };
+      existing.count += 1;
+      existing.totalSeconds += p.tempo_segundos;
+      opProdMap.set(prodName, existing);
+    }
   }
 
-  function getBestKnownProductForOperator(
-    op: Operador,
-    opPausas: Pausa[],
-    allDbPausas: Pausa[],
-    activeFilterProd?: string
-  ): string | null {
-    if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
-      return op.produto.trim();
+  // 3. Precompute best known product for operators from allDbPausas if needed
+  const bestProdByOpId = new Map<string, string>();
+  for (const p of allDbPausas) {
+    if (!p.usuario || !p.produto || p.produto === 'Sem Produto') continue;
+    const matchedOp = opIndex.find(p.usuario);
+    if (matchedOp && !bestProdByOpId.has(matchedOp.id)) {
+      bestProdByOpId.set(matchedOp.id, p.produto.trim());
     }
-
-    for (const p of opPausas) {
-      const pProd = (p.produto || '').trim();
-      if (pProd && pProd.toLowerCase() !== 'sem produto') {
-        return pProd;
-      }
-    }
-
-    const allOpPausas = getPausasForOp(op, allDbPausas);
-    const prodCounts = new Map<string, number>();
-
-    for (const p of allOpPausas) {
-      const pProd = (p.produto || '').trim();
-      if (pProd && pProd.toLowerCase() !== 'sem produto') {
-        prodCounts.set(pProd, (prodCounts.get(pProd) || 0) + 1);
-      }
-    }
-
-    if (prodCounts.size > 0) {
-      let bestProd = '';
-      let maxCount = -1;
-      for (const [prod, count] of prodCounts.entries()) {
-        if (count > maxCount) {
-          maxCount = count;
-          bestProd = prod;
-        }
-      }
-      if (bestProd) return bestProd;
-    }
-
-    if (activeFilterProd && activeFilterProd.trim() && activeFilterProd.trim().toLowerCase() !== 'sem produto') {
-      return activeFilterProd.trim();
-    }
-
-    return null;
   }
 
   const rowsMap = new Map<string, OperatorReportRow>();
 
-  // Process ONLY operators registered in db.operadores
+  // 4. Generate rows for each operator
   for (const op of operadores) {
     const nuvData = nuvidioByOpId.get(op.id) || { count: 0, totalSeconds: 0 };
-    const opPausas = getPausasForOp(op, pausas);
+    const opProdMap = pausasByOpId.get(op.id);
+    const prodGroups = opProdMap ? Array.from(opProdMap.values()) : [];
 
-    // Operator must have at least Pausas OR Nuvidio in the filtered period
-    if (nuvData.count === 0 && opPausas.length === 0) {
+    // Skip if operator has no activity in this filter
+    if (nuvData.count === 0 && prodGroups.length === 0) {
       continue;
     }
 
-    const bestKnownProd = getBestKnownProductForOperator(op, opPausas, allDbPausas, filter.produto);
+    const defaultProd = (op.produto && op.produto !== 'Sem Produto')
+      ? op.produto.trim()
+      : (bestProdByOpId.get(op.id) || filter.produto || 'Sem Produto');
 
-    if (opPausas.length > 0) {
-      // Group pausas by product
-      interface ProductGroup {
-        produto: string;
-        count: number;
-        totalSeconds: number;
-      }
-      const prodGroupMap = new Map<string, ProductGroup>();
-
-      for (const p of opPausas) {
-        let pName = (p.produto || '').trim();
-        if (op.produto && op.produto.trim() && op.produto.trim().toLowerCase() !== 'sem produto') {
-          pName = op.produto.trim();
-        } else if (!pName || pName.toLowerCase() === 'sem produto') {
-          pName = bestKnownProd || 'Sem Produto';
-        }
-        const existing = prodGroupMap.get(pName) || {
-          produto: pName,
-          count: 0,
-          totalSeconds: 0,
-        };
-        existing.count += 1;
-        existing.totalSeconds += p.tempo_segundos;
-        prodGroupMap.set(pName, existing);
-      }
-
-      const prodGroups = Array.from(prodGroupMap.values());
-
-      if (prodGroups.length === 1) {
-        const pg = prodGroups[0];
-        const rowKey = `${op.id}||${pg.produto}`;
-        const diferenca = nuvData.totalSeconds - pg.totalSeconds;
-
-        rowsMap.set(rowKey, {
-          operadorId: op.id,
-          operadorNome: op.nome,
-          operadorEmail: op.email,
-          usuario: op.usuario,
-          produto: pg.produto,
-          supervisor: op.supervisor || 'Não Informado',
-          qtdNuvidio: nuvData.count,
-          tempoNuvidioSec: nuvData.totalSeconds,
-          tempoNuvidioFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
-          qtdPausas: pg.count,
-          tempoPausasSec: pg.totalSeconds,
-          tempoPausasFormatted: formatSecondsToHHMMSS(pg.totalSeconds),
-          diferencaSec: diferenca,
-          diferencaFormatted: formatSecondsToHHMMSS(diferenca),
-        });
-      } else if (prodGroups.length > 1) {
-        const totalPausasSecAllProds = prodGroups.reduce((acc, g) => acc + g.totalSeconds, 0);
-
-        prodGroups.forEach((pg) => {
-          const rowKey = `${op.id}||${pg.produto}`;
-          const weight =
-            totalPausasSecAllProds > 0 ? pg.totalSeconds / totalPausasSecAllProds : 1 / prodGroups.length;
-
-          const allocatedNuvCount = Math.round(nuvData.count * weight);
-          const allocatedNuvSec = Math.round(nuvData.totalSeconds * weight);
-          const diferenca = allocatedNuvSec - pg.totalSeconds;
-
-          rowsMap.set(rowKey, {
-            operadorId: op.id,
-            operadorNome: op.nome,
-            operadorEmail: op.email,
-            usuario: op.usuario,
-            produto: pg.produto,
-            supervisor: op.supervisor || 'Não Informado',
-            qtdNuvidio: allocatedNuvCount,
-            tempoNuvidioSec: allocatedNuvSec,
-            tempoNuvidioFormatted: formatSecondsToHHMMSS(allocatedNuvSec),
-            qtdPausas: pg.count,
-            tempoPausasSec: pg.totalSeconds,
-            tempoPausasFormatted: formatSecondsToHHMMSS(pg.totalSeconds),
-            diferencaSec: diferenca,
-            diferencaFormatted: formatSecondsToHHMMSS(diferenca),
-          });
-        });
-      }
-    } else {
-      // Operator has Nuvidio calls BUT NO pausas in current date filter
-      const prodName = bestKnownProd || 'Sem Produto';
+    if (prodGroups.length === 0) {
+      // Operator has Nuvidio but 0 Pausas in this period
+      const rowKey = `${op.id}||${defaultProd}`;
+      rowsMap.set(rowKey, {
+        operadorId: op.id,
+        operadorNome: op.nome,
+        operadorEmail: op.email,
+        usuario: op.usuario,
+        produto: defaultProd,
+        supervisor: op.supervisor || 'Não Informado',
+        qtdNuvidio: nuvData.count,
+        tempoNuvidioSec: nuvData.totalSeconds,
+        tempoNuvidioFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
+        qtdPausas: 0,
+        tempoPausasSec: 0,
+        tempoPausasFormatted: '00:00:00',
+        diferencaSec: nuvData.totalSeconds,
+        diferencaFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
+      });
+    } else if (prodGroups.length === 1) {
+      const pg = prodGroups[0];
+      const prodName = pg.produto || defaultProd;
       const rowKey = `${op.id}||${prodName}`;
+      const diferenca = nuvData.totalSeconds - pg.totalSeconds;
 
       rowsMap.set(rowKey, {
         operadorId: op.id,
@@ -449,27 +486,57 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
         qtdNuvidio: nuvData.count,
         tempoNuvidioSec: nuvData.totalSeconds,
         tempoNuvidioFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
-        qtdPausas: 0,
-        tempoPausasSec: 0,
-        tempoPausasFormatted: '00:00:00',
-        diferencaSec: nuvData.totalSeconds,
-        diferencaFormatted: formatSecondsToHHMMSS(nuvData.totalSeconds),
+        qtdPausas: pg.count,
+        tempoPausasSec: pg.totalSeconds,
+        tempoPausasFormatted: formatSecondsToHHMMSS(pg.totalSeconds),
+        diferencaSec: diferenca,
+        diferencaFormatted: formatSecondsToHHMMSS(diferenca),
+      });
+    } else {
+      // Multiple products in Pausas for this operator -> allocate Nuvidio proportionally
+      const totalPausasSec = prodGroups.reduce((acc, g) => acc + g.totalSeconds, 0);
+
+      prodGroups.forEach((pg) => {
+        const prodName = pg.produto || defaultProd;
+        const rowKey = `${op.id}||${prodName}`;
+        const weight = totalPausasSec > 0 ? pg.totalSeconds / totalPausasSec : 1 / prodGroups.length;
+
+        const allocatedNuvCount = Math.round(nuvData.count * weight);
+        const allocatedNuvSec = Math.round(nuvData.totalSeconds * weight);
+        const diferenca = allocatedNuvSec - pg.totalSeconds;
+
+        rowsMap.set(rowKey, {
+          operadorId: op.id,
+          operadorNome: op.nome,
+          operadorEmail: op.email,
+          usuario: op.usuario,
+          produto: prodName,
+          supervisor: op.supervisor || 'Não Informado',
+          qtdNuvidio: allocatedNuvCount,
+          tempoNuvidioSec: allocatedNuvSec,
+          tempoNuvidioFormatted: formatSecondsToHHMMSS(allocatedNuvSec),
+          qtdPausas: pg.count,
+          tempoPausasSec: pg.totalSeconds,
+          tempoPausasFormatted: formatSecondsToHHMMSS(pg.totalSeconds),
+          diferencaSec: diferenca,
+          diferencaFormatted: formatSecondsToHHMMSS(diferenca),
+        });
       });
     }
   }
 
   let result = Array.from(rowsMap.values());
 
-  // Filter by product if specified
+  // Filter by product if requested
   if (filter.produto) {
     const pSearch = filter.produto.trim().toLowerCase();
     result = result.filter((r) => r.produto.toLowerCase().includes(pSearch));
   }
 
-  // Sort by Operator name then Product
+  // Sort by Operator Name then Product
   result.sort((a, b) => {
-    const compName = a.operadorNome.localeCompare(b.operadorNome);
-    if (compName !== 0) return compName;
+    const comp = a.operadorNome.localeCompare(b.operadorNome);
+    if (comp !== 0) return comp;
     return a.produto.localeCompare(b.produto);
   });
 
@@ -477,7 +544,7 @@ export function generateOperatorReport(filter: ReportFilter): OperatorReportRow[
 }
 
 /**
- * Generates Report 2: Por Produto
+ * Generates Report 2: Por Produto (Ultra-fast derivation)
  */
 export function generateProductReport(filter: ReportFilter): ProductReportRow[] {
   const opRows = generateOperatorReport(filter);
@@ -544,13 +611,16 @@ export function generateProductReport(filter: ReportFilter): ProductReportRow[] 
 }
 
 /**
- * Generates Dashboard Summary Cards Data
+ * Generates Dashboard Summary Cards Data (Instant Single-Pass)
  */
 export function generateDashboardSummary(filter: ReportFilter): DashboardSummary {
   const { operadores, pausas, nuvidio } = filterRecords(filter);
   const opReport = generateOperatorReport(filter);
 
-  const totalOperadores = operadores.length;
+  // Count unique operators that appear in the report or in the filtered list
+  const activeOperatorIds = new Set<string>();
+  opReport.forEach((r) => activeOperatorIds.add(r.operadorId));
+  const totalOperadores = activeOperatorIds.size > 0 ? activeOperatorIds.size : operadores.length;
 
   let totalNuvidios = 0;
   let tempoTotalNuvidioSec = 0;
@@ -559,7 +629,7 @@ export function generateDashboardSummary(filter: ReportFilter): DashboardSummary
     tempoTotalNuvidioSec += row.tempoNuvidioSec;
   }
 
-  // Fallback if opReport empty but raw nuvidio exists
+  // If no filters are blocking raw nuvidio and opReport is 0, show raw totals
   if (totalNuvidios === 0 && nuvidio.length > 0) {
     totalNuvidios = nuvidio.length;
     tempoTotalNuvidioSec = nuvidio.reduce((acc, n) => acc + n.tempo_segundos, 0);
@@ -567,9 +637,14 @@ export function generateDashboardSummary(filter: ReportFilter): DashboardSummary
 
   let totalPausas = 0;
   let tempoTotalPausasSec = 0;
-  for (const p of pausas) {
-    totalPausas += 1;
-    tempoTotalPausasSec += p.tempo_segundos;
+  for (const row of opReport) {
+    totalPausas += row.qtdPausas;
+    tempoTotalPausasSec += row.tempoPausasSec;
+  }
+
+  if (totalPausas === 0 && pausas.length > 0) {
+    totalPausas = pausas.length;
+    tempoTotalPausasSec = pausas.reduce((acc, p) => acc + p.tempo_segundos, 0);
   }
 
   const diferencaTotalSec = tempoTotalNuvidioSec - tempoTotalPausasSec;
@@ -591,14 +666,14 @@ export function generateDashboardSummary(filter: ReportFilter): DashboardSummary
  * Detects unmatched records (Inconsistências)
  */
 export function getUnmatchedRecords(filter: ReportFilter): UnmatchedReport {
-  const { pausas, nuvidio, allDbOperadores } = filterRecords(filter);
+  const { pausas, nuvidio, allDbOperadores, opIndex } = filterRecords(filter);
 
   const nuvidiosSemOperador = nuvidio.filter((n) => {
-    return !findOperatorForIdentifier(n.email_atendente, allDbOperadores);
+    return !opIndex.find(n.email_atendente);
   });
 
   const pausasSemOperador = pausas.filter((p) => {
-    return !findOperatorForIdentifier(p.usuario, allDbOperadores);
+    return !opIndex.find(p.usuario);
   });
 
   return {
@@ -606,4 +681,3 @@ export function getUnmatchedRecords(filter: ReportFilter): UnmatchedReport {
     pausasSemOperador,
   };
 }
-

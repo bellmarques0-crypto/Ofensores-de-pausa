@@ -355,48 +355,95 @@ export function parseDateToISO(dateInput: any): string {
 }
 
 /**
- * Parses timestamp string (e.g. "11/08/2026 19:56") into milliseconds epoch
+ * Parses timestamp string (e.g. "11/08/2026 19:56", "11/08/26 19:56:30", "2026-08-11 19:56") into milliseconds epoch
  */
 export function parseFormattedTimestampToMs(dateTimeStr: any): number {
-  if (!dateTimeStr) return 0;
+  if (!dateTimeStr && dateTimeStr !== 0) return 0;
 
   if (typeof dateTimeStr === 'number') {
-    // Excel serial datetime
-    return Math.round((dateTimeStr - 25569) * 86400 * 1000);
+    // If it's an Excel serial datetime (e.g. 45515.83055)
+    if (dateTimeStr > 10000 && dateTimeStr < 100000) {
+      return Math.round((dateTimeStr - 25569) * 86400 * 1000);
+    }
+    // If it's unix epoch ms (> 1000000000000)
+    if (dateTimeStr > 1000000000000) {
+      return Math.round(dateTimeStr);
+    }
+    // If unix epoch sec (> 1000000000)
+    if (dateTimeStr > 1000000000) {
+      return Math.round(dateTimeStr * 1000);
+    }
   }
 
-  const str = String(dateTimeStr).trim();
+  let str = String(dateTimeStr).trim().replace(/,/g, ' ').replace(/\s+/g, ' ');
   if (!str) return 0;
 
-  // Pattern: "DD/MM/YYYY HH:mm" or "DD/MM/YYYY HH:mm:ss"
-  const brPattern = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+  // Handle AM/PM
+  let isPM = false;
+  let isAM = false;
+  if (/pm$/i.test(str)) {
+    isPM = true;
+    str = str.replace(/pm$/i, '').trim();
+  } else if (/am$/i.test(str)) {
+    isAM = true;
+    str = str.replace(/am$/i, '').trim();
+  }
+
+  // 1. Pattern: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (2 or 4 digit year) + optional time
+  const brPattern = /^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
   const match = str.match(brPattern);
 
   if (match) {
-    const day = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1; // 0-indexed month
-    const year = parseInt(match[3], 10);
-    const hours = match[4] ? parseInt(match[4], 10) : 0;
+    let day = parseInt(match[1], 10);
+    let month = parseInt(match[2], 10) - 1; // 0-indexed month
+    let year = parseInt(match[3], 10);
+    if (year < 100) {
+      year = year >= 50 ? 1900 + year : 2000 + year;
+    }
+    let hours = match[4] ? parseInt(match[4], 10) : 0;
     const minutes = match[5] ? parseInt(match[5], 10) : 0;
     const seconds = match[6] ? parseInt(match[6], 10) : 0;
 
+    if (isPM && hours < 12) hours += 12;
+    if (isAM && hours === 12) hours = 0;
+
     const date = new Date(year, month, day, hours, minutes, seconds);
-    return date.getTime();
+    if (!isNaN(date.getTime())) {
+      return date.getTime();
+    }
   }
 
-  // Pattern: "YYYY-MM-DD HH:mm:ss"
-  const isoPattern = /^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+  // 2. Pattern: "YYYY-MM-DD" or "YYYY/MM/DD" + optional time
+  const isoPattern = /^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})(?:[\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
   const matchIso = str.match(isoPattern);
   if (matchIso) {
     const year = parseInt(matchIso[1], 10);
     const month = parseInt(matchIso[2], 10) - 1;
     const day = parseInt(matchIso[3], 10);
-    const hours = matchIso[4] ? parseInt(matchIso[4], 10) : 0;
+    let hours = matchIso[4] ? parseInt(matchIso[4], 10) : 0;
     const minutes = matchIso[5] ? parseInt(matchIso[5], 10) : 0;
     const seconds = matchIso[6] ? parseInt(matchIso[6], 10) : 0;
 
+    if (isPM && hours < 12) hours += 12;
+    if (isAM && hours === 12) hours = 0;
+
     const date = new Date(year, month, day, hours, minutes, seconds);
-    return date.getTime();
+    if (!isNaN(date.getTime())) {
+      return date.getTime();
+    }
+  }
+
+  // 3. Time-only pattern (e.g. "19:56:00" or "19:56")
+  const timeOnlyPattern = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const matchTime = str.match(timeOnlyPattern);
+  if (matchTime) {
+    let hours = parseInt(matchTime[1], 10);
+    const minutes = parseInt(matchTime[2], 10);
+    const seconds = matchTime[3] ? parseInt(matchTime[3], 10) : 0;
+    if (isPM && hours < 12) hours += 12;
+    if (isAM && hours === 12) hours = 0;
+    // Return relative milliseconds since start of day
+    return (hours * 3600 + minutes * 60 + seconds) * 1000;
   }
 
   const parsed = new Date(str);
@@ -408,16 +455,41 @@ export function parseFormattedTimestampToMs(dateTimeStr: any): number {
 }
 
 /**
- * Calculates duration in seconds between Nuvidio exit and entry timestamps
+ * Calculates duration in seconds between Nuvidio exit and entry timestamps or direct tempo
  */
-export function calculateNuvidioDurationSeconds(entradaStr: string, saidaStr: string): number {
+export function calculateNuvidioDurationSeconds(
+  entradaStr: string | number,
+  saidaStr: string | number,
+  directTempo?: string | number
+): number {
+  // If direct duration is provided
+  if (directTempo !== undefined && directTempo !== null && directTempo !== '') {
+    const sec = parseTimeToSeconds(directTempo);
+    if (sec > 0) return sec;
+  }
+
   const entradaMs = parseFormattedTimestampToMs(entradaStr);
   const saidaMs = parseFormattedTimestampToMs(saidaStr);
 
-  if (!entradaMs || !saidaMs) return 0;
+  if (entradaMs && saidaMs) {
+    let diffMs = saidaMs - entradaMs;
+    // Handle overnight crossing if time-only was used
+    if (diffMs < 0 && entradaMs < 86400000 && saidaMs < 86400000) {
+      diffMs += 86400000;
+    }
+    if (diffMs > 0) {
+      return Math.round(diffMs / 1000);
+    }
+  }
 
-  const diffMs = saidaMs - entradaMs;
-  return Math.max(0, Math.round(diffMs / 1000));
+  // Fallback: try parsing entrada/saida directly if they are simple time strings (HH:mm:ss)
+  const entSec = parseTimeToSeconds(entradaStr);
+  const saiSec = parseTimeToSeconds(saidaStr);
+  if (entSec > 0 && saiSec > 0 && saiSec >= entSec) {
+    return saiSec - entSec;
+  }
+
+  return 0;
 }
 
 /**

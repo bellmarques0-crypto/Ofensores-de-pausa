@@ -400,6 +400,24 @@ const REQUIRED_FIELDS = {
         'fim_chamada',
       ],
     },
+    {
+      key: 'tempo',
+      label: 'Tempo / Duração (Opcional)',
+      aliases: [
+        'tempo',
+        'duracao',
+        'duracaochamada',
+        'tempochamada',
+        'tempototal',
+        'duracaototal',
+        'duracaodachamada',
+        'tempodeatendimento',
+        'duracao_chamada',
+        'tempo_atendimento',
+        'duracao_atendimento',
+      ],
+      optional: true,
+    },
   ],
 };
 
@@ -1005,12 +1023,13 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
         const email_atendente = rawAtendente.toLowerCase();
         const entrada = String(row[mappings.entrada] || '').trim();
         const saida = String(row[mappings.saida] || '').trim();
+        const tempoRaw = mappings.tempo ? row[mappings.tempo] : undefined;
 
-        if (!email_atendente || !entrada || !saida) return;
+        if (!email_atendente || (!entrada && !saida && !tempoRaw)) return;
 
-        const data_iso = parseDateToISO(entrada);
-        const tempo_segundos = calculateNuvidioDurationSeconds(entrada, saida);
-        const fingerprint = createFingerprint(email_atendente, entrada, saida);
+        const data_iso = parseDateToISO(entrada) || parseDateToISO(saida);
+        const tempo_segundos = calculateNuvidioDurationSeconds(entrada, saida, tempoRaw);
+        const fingerprint = createFingerprint(email_atendente, entrada, saida, String(tempo_segundos));
 
         if (existingFingerprints.has(fingerprint)) {
           skippedCount += 1;
