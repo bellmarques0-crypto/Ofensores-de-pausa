@@ -3,6 +3,48 @@
  */
 
 /**
+ * Fixes double-encoded UTF-8 strings (mojibake) such as EMPRÃ\u008dSTIMOS -> EMPRÉSTIMOS, NÃ\u0083O -> NÃO
+ */
+export function fixEncoding(str: any): string {
+  if (str === null || str === undefined) return '';
+  let s = String(str).trim();
+  if (!s) return '';
+
+  try {
+    if (/[\u00C2\u00C3\u00C4\u00C5\uFFFD]/.test(s)) {
+      const buf = Buffer.from(s, 'binary');
+      const decoded = buf.toString('utf-8');
+      if (decoded && !decoded.includes('\uFFFD') && decoded.length <= s.length) {
+        s = decoded;
+      }
+    }
+  } catch {}
+
+  return s
+    .replace(/EMPRÃ[\u0080-\u009F]?STIMOS/gi, 'EMPRÉSTIMOS')
+    .replace(/EMPR[ÃÁÀÂÄ]STIMOS/gi, 'EMPRÉSTIMOS')
+    .replace(/NÃ[\u0080-\u009F]?O/gi, 'NÃO')
+    .replace(/CART[ÃÁÀÂÄ]ES/gi, 'CARTÕES')
+    .replace(/ATEND[ÃÁÀÂÄ]NC/gi, 'ATENDÊNC')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã£/g, 'ã')
+    .replace(/Ãµ/g, 'õ')
+    .replace(/Ã§/g, 'ç')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã\u008d/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Ãƒ/g, 'Ã')
+    .replace(/Ã•/g, 'Õ')
+    .replace(/Ã‡/g, 'Ç');
+}
+
+/**
  * Normalizes an email address: trimmed, lowercase, stripped of invalid spaces
  */
 export function normalizeEmail(email: any): string {

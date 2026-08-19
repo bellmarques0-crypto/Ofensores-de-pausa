@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { calculatePauseDurationSeconds, formatSecondsToHHMMSS, parseDateToISO } from './utils';
+import { calculatePauseDurationSeconds, formatSecondsToHHMMSS, parseDateToISO, fixEncoding } from './utils';
 
 export interface Operador {
   id: string;
