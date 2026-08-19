@@ -1039,7 +1039,7 @@ router.post('/process', upload.single('file'), async (req: Request, res: Respons
     const importRecord: Importacao = {
       id: `imp-${Date.now()}`,
       tipo_base: baseType,
-      nome_arquivo: file.originalname,
+      nome_arquivo: fileName || (file ? file.originalname : 'texto_colado.tsv'),
       quantidade_registros: importedCount,
       data_importacao: now,
       status: 'sucesso',
